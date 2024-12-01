@@ -291,10 +291,14 @@ class TradingBot:
         """Генерация торгового сигнала с автоматическим выбором стратегии"""
         try:
             # Выбираем подходящую стратегию
-            strategy = self.strategy_manager.select_strategy(self.data)
+            strategy = self.strategy_manager.select_strategy(self.data, self.selected_pairs)
+            
+            if strategy is None:
+                self.logger.error("Не удалось выбрать стратегию")
+                return 'HOLD'
             
             # Генерируем сигнал используя выбранную стратегию
-            return strategy.generate_signal(self.data, self.indicators)
+            return strategy.generate_signal(self.data)
             
         except Exception as e:
             self.logger.error(f"Ошибка при генерации сигнала: {str(e)}")
@@ -362,7 +366,7 @@ class TradingBot:
         }
         self.trades.append(trade_info)
 
-        # Сохраняем в CSV
+        # Сораняем в CSV
         df = pd.DataFrame([trade_info])
         df.to_csv(f'trades/trade_{len(self.trades)}.csv', index=False)
 
@@ -376,7 +380,7 @@ class TradingBot:
             price_change_24h = ((last_row['close'] - self.data['close'].iloc[-24]) / self.data['close'].iloc[-24] * 100)
             volume_24h = self.data['volume'].iloc[-24:].sum()
             
-            # Анализ тренда
+            # Анализ тренд
             trend_direction = "Восходящий" if last_row['trend_direction'] == 1 else "Нисходящий" if last_row['trend_direction'] == -1 else "Боквой"
             trend_strength = float(last_row['trend_strength'])
             
@@ -403,7 +407,7 @@ class TradingBot:
                 f"- Положение BB: {bb_position:.1f}%\n"
                 f"- Momentum: {last_row['momentum']:.2f}\n"
                 f"\nУРОВНИ:\n"
-                f"- Сопротивление: {self._calculate_resistance_level():.2f}\n"
+                f"- Сопротивлние: {self._calculate_resistance_level():.2f}\n"
                 f"- Поддержка: {self._calculate_support_level():.2f}\n"
                 f"\nОБЪЕМ:\n"
                 f"- Тип: {self._analyze_volume()}\n"
@@ -649,7 +653,7 @@ class TradingBot:
             returns = np.log(self.data['close'] / self.data['close'].shift(1))
             return float(returns.tail(24).std() * np.sqrt(24) * 100)
         except Exception as e:
-            self.logger.error(f"Ошибка расчета волатильности: {str(e)}", exc_info=True)
+            self.logger.error(f"шибка расчета волатильности: {str(e)}", exc_info=True)
             return 0.0
 
     def _calculate_market_strength(self, last_row):
@@ -756,29 +760,43 @@ class TradingBot:
 
     def run_auto_trading(self):
         """Запуск автоматической торговли с многопоточностью"""
-        print("\nЗапуск автоматической торговли...")
+        self.logger.info("\nЗапуск автоматической торговли...")
         cycle_count = 0
+        last_pairs_update = datetime.now()
 
         try:
             with ThreadPoolExecutor(max_workers=4) as executor:
                 while True:
                     try:
                         cycle_count += 1
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"\nЦикл #{cycle_count} | Время: {current_time}")
-                        print("Статус: Бот работает...")
+                        current_time = datetime.now()
+                        self.logger.info(f"\nЦикл #{cycle_count} | Время: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        self.logger.info("Статус: Бот работает...")
 
                         # Обновляем баланс
                         self._update_balance()
 
-                        # Каждые 6 часов обновляем список пар
-                        if cycle_count % 72 == 1:  # 72 цикла по 5 минут = 6 часов
-                            self.analyze_and_select_pairs()
+                        # Обновляем список пар каждые 6 часов
+                        if (current_time - last_pairs_update).total_seconds() >= 21600:  # 6 часов
+                            self.logger.info("Запуск обновления списка торговых пар...")
+                            if self.analyze_and_select_pairs():
+                                last_pairs_update = current_time
+                                self.logger.info("Список торговых пар успешно обновлен")
+                            else:
+                                self.logger.error("Не удалось обновить список пар")
+                                if not self.selected_pairs:  # Если нет пар вообще
+                                    time.sleep(60)
+                                    continue
 
                         # Проходим по всем выбранным парам
+                        if not self.selected_pairs:
+                            self.logger.error("Нет выбранных пар для торговли")
+                            time.sleep(60)
+                            continue
+
                         for pair_info in self.selected_pairs:
                             pair = pair_info['symbol']
-                            print(f"\nАнализ пары: {pair}")
+                            self.logger.info(f"\nАнализ пары: {pair}")
                             
                             # Обновляем текущую торговую пару
                             config.TRADING_PARAMS['symbol'] = pair
@@ -788,30 +806,30 @@ class TradingBot:
                                 self.update_bot_state()
                             else:
                                 self.logger.error(f"Не удалось получить или проанализировать данные для {pair}")
+                                continue  # Переходим к следующей паре
 
                         # Ждем указанный интервал
                         interval = config.TRADING_PARAMS.get('interval_seconds', 300)
-                        print(f"Ожидание {interval} секунд до следующей проверки...")
+                        self.logger.info(f"Ожидание {interval} секунд до следующей проверки...")
                         
                         try:
                             time.sleep(interval)
                         except KeyboardInterrupt:
-                            print("\nПолучен сигнал остановки. Завершение работы...")
-                            self._shutdown()
-                            return
+                            raise
 
+                    except KeyboardInterrupt:
+                        raise
                     except Exception as e:
                         self.logger.error(f"Ошибка в цикле торговли: {e}", exc_info=True)
                         time.sleep(60)
 
         except KeyboardInterrupt:
-            print("\nПолучен сигнал остановки. Завершение работы...")
-            self._shutdown()
+            self.logger.info("\nПолучен сигнал остановки. Завершение работы...")
         except Exception as e:
             self.logger.error(f"Критическая ошибка: {e}", exc_info=True)
-            self._shutdown()
         finally:
-            print("Бот остановлен")
+            self._shutdown()
+            self.logger.info("Бот остановлен")
 
     def _shutdown(self):
         """Корректное завершение работы бота"""
@@ -836,6 +854,14 @@ class TradingBot:
     def _fetch_and_analyze_data(self):
         """Получение и анализ данных"""
         try:
+            self.logger.info(f"Получение данных для {config.TRADING_PARAMS['symbol']}")
+            
+            # Обновляем символ в стратегии
+            if hasattr(self, 'strategy_manager'):
+                strategy = self.strategy_manager.strategies.get('goat')
+                if strategy:
+                    strategy.config['symbol'] = config.TRADING_PARAMS['symbol']
+            
             # Получаем данные
             if not self.fetch_data():
                 self.logger.error("Не удалось получить данные с биржи")
@@ -847,12 +873,13 @@ class TradingBot:
                 return False
 
             # Создаем объект индикаторов и рассчитываем их
+            self.logger.info("Расчет индикаторов...")
             self.indicators = TechnicalIndicators(self.data)
             self.data = self.indicators.calculate_all_indicators()
 
             # Генерируем сигнал
             signal = self.generate_signal()
-            print(f"Сгенерирован сигнал: {signal}")
+            self.logger.info(f"Сгенерирован сигнал: {signal}")
 
             # Если есть сигнал, рассчитываем метрики и добавляем в очередь
             if signal != 'HOLD':
@@ -930,6 +957,13 @@ class TradingBot:
                 usdt_balance = float([asset for asset in account['balances']
                                    if asset['asset'] == 'USDT'][0]['free'])
                 self.balance = usdt_balance
+                
+                # Обновляем баланс в стратегии
+                if hasattr(self, 'strategy_manager'):
+                    strategy = self.strategy_manager.strategies.get('goat')
+                    if strategy:
+                        strategy.config['account_balance'] = usdt_balance
+                        
                 self.logger.info(f"Баланс обновлен: {self.balance} USDT")
                 return True
             return False
@@ -1079,7 +1113,7 @@ class TradingBot:
             return None
 
     def _get_trading_statistics(self):
-        """Получение статистики торговли"""
+        """Получение сатистики торговли"""
         try:
             total_trades = len(self.trades)
             if total_trades == 0:
@@ -1101,7 +1135,7 @@ class TradingBot:
                 'recent_trades': recent_trades
             }
         except Exception as e:
-            self.logger.error(f"Ошибка получения ста��истики торговли: {str(e)}", exc_info=True)
+            self.logger.error(f"Ошибка получения стаистики торговли: {str(e)}", exc_info=True)
             return None
 
     def _get_open_positions(self):
@@ -1131,7 +1165,7 @@ class TradingBot:
                     
                     # Проверяем, есть ли реальная позиция
                     if total_amount > 0:
-                        # олучаем текущую цену
+                        # лучаем текущую цену
                         ticker = self.client.get_symbol_ticker(symbol=symbol)
                         current_price = float(ticker['price'])
                         
@@ -1157,7 +1191,7 @@ class TradingBot:
                 return positions
             
             except Exception as symbol_error:
-                self.logger.debug(f"Ошибка получения позиции для {symbol}: {str(symbol_error)}")
+                self.logger.debug(f"шибка получения позиции для {symbol}: {str(symbol_error)}")
                 return None
             
         except Exception as e:
@@ -1179,7 +1213,16 @@ class TradingBot:
     def analyze_and_select_pairs(self):
         """Анализ и выбор торговых пар"""
         try:
+            self.logger.info("Начинаем анализ торговых пар...")
             analyzer = PairAnalyzer(self.client)
+            
+            # Проверяем существующий кэш
+            if hasattr(self, '_pairs_cache') and self._pairs_cache.get('timestamp'):
+                cache_age = (datetime.now() - self._pairs_cache['timestamp']).total_seconds()
+                if cache_age < 3600:  # Используем кэш если он не старше 1 часа
+                    self.logger.info("Используем кэшированные результаты анализа пар")
+                    self.selected_pairs = self._pairs_cache['pairs']
+                    return True
             
             # Получаем все доступные пары
             available_pairs = analyzer.get_available_pairs()
@@ -1187,15 +1230,27 @@ class TradingBot:
             
             # Анализируем каждую пару
             pair_analyses = []
-            for pair in available_pairs:
-                analysis = analyzer.analyze_pair(pair)
-                if analysis:
-                    pair_analyses.append(analysis)
+            total_pairs = len(available_pairs)
+            self.logger.info(f"Начинаем анализ {total_pairs} пар...")
+            
+            for i, pair in enumerate(available_pairs, 1):
+                try:
+                    if i % 50 == 0:  # Логируем прогресс каждые 50 пар
+                        self.logger.info(f"Проанализировано {i}/{total_pairs} пар...")
+                    
+                    analysis = analyzer.analyze_pair(pair)
+                    if analysis:
+                        pair_analyses.append(analysis)
+                except Exception as pair_error:
+                    self.logger.error(f"Ошибка анализа пары {pair}: {str(pair_error)}")
+                    continue
+            
+            self.logger.info(f"Успешно проанализировано {len(pair_analyses)} пар")
             
             # Сортируем пары по оценке
             sorted_pairs = sorted(pair_analyses, key=lambda x: x['score'], reverse=True)
             
-            # Выбираем топ-10 пар или настраиваемое количество
+            # Выбираем топ-N пар
             top_n = config.TRADING_PARAMS.get('max_pairs', 10)
             self.selected_pairs = sorted_pairs[:top_n]
             
@@ -1203,7 +1258,7 @@ class TradingBot:
             self._save_pairs_state()
             
             # Выводим информацию о выбранных парах
-            self.logger.info("\nВыбранные торговые пар��:")
+            self.logger.info("\nВыбранные торговые пары:")
             for pair in self.selected_pairs:
                 self.logger.info(
                     f"Пара: {pair['symbol']} | "
@@ -1212,8 +1267,17 @@ class TradingBot:
                     f"Объем: {pair['avg_daily_volume']:.0f}"
                 )
             
+            # Сохраняем результаты в кэш
+            self._pairs_cache = {
+                'timestamp': datetime.now(),
+                'pairs': self.selected_pairs
+            }
+            
+            return True
+            
         except Exception as e:
             self.logger.error(f"Ошибка при анализе пар: {str(e)}", exc_info=True)
+            return False
 
     def _save_pairs_state(self):
         """Сохранение информации о торгуемых парах"""

@@ -11,6 +11,10 @@ from strategies.base_strategy import SignalStrategy
 import numpy as np
 import pandas as pd
 import ta
+from utils.exchange_handler import ExchangeHandler
+from utils.risk_manager import RiskManager
+from utils.order_executor import OrderExecutor
+from utils.position_monitor import PositionMonitor
 
 
 class GoatStrategy(SignalStrategy):
@@ -23,32 +27,57 @@ class GoatStrategy(SignalStrategy):
         """
         Инициализация параметров стратегии
         """
+        # Базовый таймфрейм из конфига
+        timeframe = config.get('interval', '1m') if isinstance(config, dict) else config.TRADING_PARAMS.get('interval', '1m')
+        
+        # Инициализируем без конкретного символа
+        super().__init__(None, timeframe)
+        
+        # Инициализируем логгер
+        self.logger = logging.getLogger('TradingBot.GoatStrategy')
+        
         self.config = config
+        self.trading_pairs = []  # Список подходящих пар
+        
+        # Инициализация компонентов для реальной торговли
+        self.exchange = ExchangeHandler()
+        self.risk_manager = RiskManager(self.exchange)
+        self.order_executor = OrderExecutor(self.exchange, self.risk_manager)
+        self.position_monitor = PositionMonitor(self.exchange, self.risk_manager, self.order_executor)
+        
         # Базовые параметры
-        self.rsi_period = 2          # Сверхкороткий период RSI
-        self.rsi_overbought = 70     # Стандартные уровни RSI
+        self.rsi_period = 2
+        self.rsi_overbought = 70
         self.rsi_oversold = 30
-        self.ema_short = 2           # Сверхбыстрые EMA
+        self.ema_short = 2
         self.ema_medium = 3
         self.ema_long = 4
 
         # Дополнительные параметры
-        self.atr_period = 3          # Минимальный период ATR
-        self.volume_ma_period = 3    # Минимальный период объема
-        self.trailing_stop_atr = 0.5 # Минимальный стоп
-        self.min_volatility = 0.001  # Минимальная волатильность
-        self.profit_target = 1.5     # Увеличенный профит
+        self.atr_period = 3
+        self.volume_ma_period = 3
+        self.trailing_stop_atr = 0.5
+        self.min_volatility = 0.001
+        self.profit_target = 1.5
 
         # Веса для условий
         self.weights = {
-            'rsi': 0.8,       # Максимальный вес на RSI
-            'trend': 0.2,     # Минимальный вес на тренд
-            'volume': 0.0,    # Игнорируем объем
-            'volatility': 0.0 # Игнорируем волатильность
+            'rsi': 0.8,
+            'trend': 0.2,
+            'volume': 0.0,
+            'volatility': 0.0
         }
 
         self.trades = []
         self.data = None
+        
+        # Запуск мониторинга позиций
+        self.position_monitor.start()
+
+    def __del__(self):
+        """Деструктор для корректного завершения работы"""
+        if hasattr(self, 'position_monitor'):
+            self.position_monitor.stop()
 
     def get_name(self):
         """Получение названия стратегии"""
@@ -151,69 +180,177 @@ class GoatStrategy(SignalStrategy):
             logging.error(f"Ошибка расчета отношения объема: {str(e)}")
             return 0.0
 
-    def generate_signal(self, data):
-        """Генерация сигналов с упрощенной логикой"""
+    def execute_signal(self, signal, data):
+        """Исполнение торгового гнала"""
         try:
+            if signal in ['BUY', 'SELL']:
+                # Получаем текущую цну
+                current_price = data['close'].iloc[-1]
+                
+                # Проверяем взможность открытия позиции
+                indicators = self.calculate_indicators(data)
+                position_size = self.calculate_position_size(data, indicators)
+                
+                if position_size > 0:
+                    # Исполняем сигнал через order executor
+                    result = self.order_executor.execute_signal(
+                        symbol=self.config['symbol'],
+                        side=signal,
+                        signal_price=current_price
+                    )
+                    
+                    if result:
+                        self.logger.info(f"Успешно исполнен сигнал {signal} для {self.config['symbol']}")
+                        # Сохраняем информацию о сделке
+                        trade_info = {
+                            'timestamp': data.index[-1],
+                            'symbol': self.config['symbol'],
+                            'side': signal,
+                            'entry_price': float(result['main_order']['price']),
+                            'quantity': float(result['main_order']['executedQty']),
+                            'stop_loss': result['stop_loss']['price'] if result['stop_loss'] else None,
+                            'take_profits': [tp['price'] for tp in result['take_profits']]
+                        }
+                        self.trades.append(trade_info)
+                    else:
+                        self.logger.error(f"Ошибка исполнения сигнала {signal}")
+                        
+        except Exception as e:
+            self.logger.error(f"Ошибка при исполнении сигнала: {str(e)}")
+
+    def generate_signal(self, data, indicators=None):
+        """Генерация сигналов с проверкой рыночных условий"""
+        try:
+            if not hasattr(self, 'logger'):
+                self.logger = logging.getLogger('TradingBot.GoatStrategy')
+            
+            # Проверяем, что символ в списке торгуемых пар
+            if not self.symbol or self.symbol not in [p['symbol'] for p in self.trading_pairs]:
+                self.logger.debug("Символ не найден в списке торгуемых пар")
+                return "HOLD"
+            
+            # Если indicators не передан, рассчитываем их
+            if indicators is None:
+                indicators = self.calculate_indicators(data)
+            
             # Получаем значения индикаторов
-            indicators = self.calculate_indicators(data)
             rsi = indicators['rsi'].iloc[-1]
             ema_short = indicators['ema_short'].iloc[-1]
             ema_medium = indicators['ema_medium'].iloc[-1]
             
-            # Проверяем базовые условия
+            self.logger.debug(f"RSI: {rsi:.2f}, EMA short: {ema_short:.2f}, EMA medium: {ema_medium:.2f}")
+            
+            # Проверяем текущие позиции
+            try:
+                symbol = self.config.get('symbol') or config.TRADING_PARAMS.get('symbol')
+                if not symbol:
+                    self.logger.error("Символ не найден в конфигурации")
+                    return "HOLD"
+            except Exception as e:
+                self.logger.error(f"Ошибка получения символа: {str(e)}")
+                return "HOLD"
+            
+            current_position = self.risk_manager.open_positions.get(symbol)
+            
+            # Если есть открытая позиция, проверяем условия выхода
+            if current_position:
+                position_status = self.position_monitor.get_position_status(symbol)
+                if position_status:
+                    # Проверяем условия для закрытия позиции
+                    if position_status['side'] == 'LONG' and rsi >= 70:
+                        return "SELL"
+                    elif position_status['side'] == 'SHORT' and rsi <= 30:
+                        return "BUY"
+                return "HOLD"
+            
+            # Проверяем временной интервал между сигналами
             if len(self.trades) > 0:
                 last_trade_time = self.trades[-1].get('timestamp')
                 if last_trade_time and (data.index[-1] - last_trade_time).seconds < 1:
                     return "HOLD"
             
-            # Упрощенная проверка объема
-            volume_ok = True  # Игнорируем проверку объема
+            # Проверяем рыночные условия
+            volatility = self.calculate_volatility(data)
+            if volatility < self.min_volatility:
+                return "HOLD"
             
-            # Сигнал на покупку (упрощенные условия)
-            if (
-                (rsi <= 30 or                  # Основное условие RSI
-                (rsi <= 40 and ema_short > ema_medium))  # Дополнительное условие тренда
-            ):
-                return "BUY"
+            # Сигнал на покупку
+            if (rsi <= 30 or (rsi <= 40 and ema_short > ema_medium)):
+                # Проверяем возможность открытия позиции
+                if self.risk_manager.can_open_position(
+                    symbol,
+                    "BUY",
+                    self.calculate_position_size(data, indicators),
+                    data['close'].iloc[-1]
+                ):
+                    return "BUY"
                 
-            # Сигнал на продажу (упрощенные условия)
-            elif (
-                (rsi >= 70 or                  # Основное условие RSI
-                (rsi >= 60 and ema_short < ema_medium))  # Дополнительное условие тренда
-            ):
-                return "SELL"
+            # Сигнал на продажу
+            elif (rsi >= 70 or (rsi >= 60 and ema_short < ema_medium)):
+                if self.risk_manager.can_open_position(
+                    symbol,
+                    "SELL",
+                    self.calculate_position_size(data, indicators),
+                    data['close'].iloc[-1]
+                ):
+                    return "SELL"
                 
             return "HOLD"
             
         except Exception as e:
-            logging.error(f"Ошибка при генерации сигнала: {str(e)}")
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Ошибка при генерации сигнала: {str(e)}", exc_info=True)
+            else:
+                print(f"Ошибка при генерации сигнала: {str(e)}")
             return "HOLD"
 
     def calculate_position_size(self, data, indicators):
-        """Расчет размера позиции с агрессивным риском"""
+        """Расчет размера позиции с учетом риск-менеджмента"""
         try:
             atr = indicators['atr'].iloc[-1]
             current_price = data['close'].iloc[-1]
-            account_balance = self.config.get('account_balance', 10000)
-            risk_per_trade = self.config.get('risk_per_trade', 0.05)  # Максимальный риск
             
-            # Минимальный стоп-лосс
+            # Получаем баланс и параметры риска
+            account_balance = self.config.get('account_balance', 10000)
+            risk_per_trade = self.config.get('risk_per_trade', 0.01)  # 1% от баланса по умолчанию
+            max_position_size = self.config.get('max_position_size', 0.1)  # 10% от баланса
+            
+            # Рассчитываем максимальный риск в USDT
+            risk_amount = account_balance * risk_per_trade
+            
+            # Рассчитываем стоп-лосс на основе ATR
             stop_loss_atr = atr * 0.5
             stop_loss_price = current_price - stop_loss_atr
             
-            # Расчет размера позиции
-            risk_amount = account_balance * risk_per_trade
+            # Рассчитываем размер позиции на основе риска
             position_size = risk_amount / (current_price - stop_loss_price)
             
-            # Ограничение размера позиции
-            max_position_size = account_balance * 0.4  # Максимальный размер
-            position_size = min(position_size, max_position_size)
+            # Ограничиваем размер позиции
+            max_position_value = account_balance * max_position_size
+            max_position_size_units = max_position_value / current_price
             
-            return round(position_size, 2)
+            # Выбираем меньшее значение
+            position_size = min(position_size, max_position_size_units)
+            
+            # Проверяем минимальный размер позиции
+            min_position_value = 10  # Минимум 10 USDT
+            min_position_size = min_position_value / current_price
+            
+            if position_size < min_position_size:
+                self.logger.warning(f"Размер позиции меньше минимального: {position_size * current_price:.2f} USDT")
+                return 0
+            
+            # Проверяем максимальный размер
+            position_value = position_size * current_price
+            if position_value > max_position_value:
+                self.logger.warning(f"Размер позиции превышает максимально допустимый: {(position_value / max_position_value * 100):.2f}%")
+                position_size = max_position_size_units
+            
+            return round(position_size, 8)  # Округляем до 8 знаков после запятой
             
         except Exception as e:
-            logging.error(f"Ошибка расчета размера позиции: {str(e)}")
-            return 0.1
+            self.logger.error(f"Ошибка расчета размера позиции: {str(e)}")
+            return 0
 
     def calculate_stop_loss(self, data, indicators, side):
         """Улучшенный расчет стоп-лосса"""
@@ -398,7 +535,7 @@ class GoatStrategy(SignalStrategy):
             }
         except Exception as e:
             logging.error(f"Ошибка анализа ликвидности: {str(e)}")
-            return {'is_liquid': True}  # По умол��анию считаем рынок ликвидным
+            return {'is_liquid': True}  # По умолчанию считаем рынок ликвидным
 
     def _analyze_market_conditions(self, data, rsi, trend_up, trend_down):
         """Расширенный анализ рыночны условий"""
@@ -411,7 +548,7 @@ class GoatStrategy(SignalStrategy):
             # Анализ объемов
             volume_sma = data['volume'].rolling(20).mean()
             volume_trend = 'rising' if data['volume'].iloc[-1] > volume_sma.iloc[
-                -1] * 0.8 else 'falling'  # Снижаем требование
+                -1] * 0.8 else 'falling'  # Снижае требование
 
             # Анализ моментума
             momentum = (data['close'].iloc[-1] - data['close'].iloc[-5]) / data['close'].iloc[-5] * 100
@@ -435,9 +572,9 @@ class GoatStrategy(SignalStrategy):
             return {'is_tradeable': True}  # По умолчанию считаем рынок торгуемым
 
     def _calculate_market_correlation(self, data):
-        """Расчет корреляции с общим рыночным трендом"""
+        """Расчет корреляции с общим рыночным тредом"""
         try:
-            # Используем BTC как прокси для общего рынка
+            # Ипользуем BTC как прокси для общего рынка
             market_data = data['close'].pct_change()
 
             # Рассчитываем корреляцию за последние 20 периодов
@@ -462,7 +599,7 @@ class GoatStrategy(SignalStrategy):
         try:
             # Рассчитываем изменение цены за разные периоды
             changes = {
-                'short': data['close'].pct_change(3).iloc[-1] * 100,  # 3 перода
+                'short': data['close'].pct_change(3).iloc[-1] * 100,  # 3 пеода
                 'medium': data['close'].pct_change(7).iloc[-1] * 100,  # 7 периодов
                 'long': data['close'].pct_change(14).iloc[-1] * 100  # 14 периодов
             }
@@ -522,6 +659,17 @@ class GoatStrategy(SignalStrategy):
         except Exception as e:
             logging.error(f"Ошибка проверки условий сигнала: {str(e)}")
             return False
+
+    def update_trading_pairs(self, pairs):
+        """Обновление списка торгуемых пар"""
+        self.trading_pairs = pairs
+        if pairs:
+            # Устанавлваем текущий символ как лучшую пару
+            self.symbol = pairs[0]['symbol']
+            
+    def get_trading_pairs(self):
+        """Получение списка торгуемых пар"""
+        return self.trading_pairs
 
 
 # Добавляем код для тестирования сратегии при прямом запуске файла
