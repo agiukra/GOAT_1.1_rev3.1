@@ -1,5 +1,5 @@
-from .macd_strategy import MACDStrategy
-from .rsi_bb_strategy import RSIBollingerStrategy
+from .base_strategy import SignalStrategy
+from .goat_strategy import GoatStrategy
 import logging
 
 class StrategyManager:
@@ -9,8 +9,7 @@ class StrategyManager:
         
         # Инициализируем доступные стратегии
         self.strategies = {
-            'MACD': MACDStrategy(config),
-            'RSI_BB': RSIBollingerStrategy(config)
+            'goat': GoatStrategy(config)
         }
         
         self.current_strategy = None
@@ -34,11 +33,11 @@ class StrategyManager:
             # Выбор стратегии на основе условий
             if is_trending and high_volume:
                 # В трендовом рынке с высоким объемом используем MACD
-                strategy = 'MACD'
+                strategy = 'goat'
                 reason = "Сильный тренд и высокий объем"
             else:
                 # В боковом рынке или при низком объеме используем RSI+BB
-                strategy = 'RSI_BB'
+                strategy = 'goat'
                 reason = "Боковой рынок или низкий объем"
             
             # Если стратегия изменилась, логируем это
@@ -58,7 +57,7 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Ошибка при выборе стратегии: {str(e)}")
             # В случае ошибки используем RSI+BB как более консервативную стратегию
-            return self.strategies['RSI_BB']
+            return self.strategies['goat']
     
     def _calculate_volatility(self, data):
         """Расчет волатильности"""

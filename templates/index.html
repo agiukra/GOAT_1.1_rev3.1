@@ -1,445 +1,284 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>GOAT Trading Bot Monitor</title>
-    <meta http-equiv="refresh" content="30">
+    <title>Монитор торгового бота</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
     <style>
-        /* Сброс стилей и базовые настройки */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px;
+            background-color: #f0f2f5;
         }
-
-        html, body {
-            width: 100vw;
-            height: 100vh;
-            margin: 0;
-            padding: 0;
-            overflow-x: hidden;
-            background-color: #f5f5f5;
-            font-family: Arial, sans-serif;
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
         }
-
-        /* Основной контейнер */
-        .container {
-            width: 100vw;
-            min-height: 100vh;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Заголовок */
-        .header {
-            width: 100%;
-            background-color: #343a40;
-            color: white;
-            padding: 20px;
+        .status-block { 
+            padding: 20px; 
+            margin: 15px 0; 
             border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-
-        /* Сетка с карточками */
+        .indicator { 
+            margin: 10px 0;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .warning { color: #ffc107; }
+        .price-up { color: #28a745; }
+        .price-down { color: #dc3545; }
+        .status-active {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .status-inactive {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+        }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
-            width: 100%;
-            margin: 0 auto;
         }
-
-        /* Карточки */
-        .card {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            height: 100%;
+        h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
         }
-
-        /* Адаптивность для разных экранов */
-        @media screen and (max-width: 1400px) {
-            .grid {
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            }
+        .refresh-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            float: right;
         }
-
-        @media screen and (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-            
+        .refresh-button:hover {
+            background-color: #0056b3;
+        }
+        .indicator-label {
+            font-weight: bold;
+            color: #666;
+        }
+        .indicator-value {
+            float: right;
+            font-weight: bold;
+        }
+        
+        /* Добавляем адаптивные стили */
+        @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
             }
-            
-            .card {
-                padding: 15px;
+            .indicator-value {
+                display: block;
+                float: none;
+                margin-top: 5px;
+            }
+            .refresh-button {
+                float: none;
+                display: block;
+                width: 100%;
+                margin-top: 10px;
+            }
+            h1 {
+                font-size: 1.5em;
+                text-align: center;
             }
         }
-
-        /* Остальные стили остаются без изменений */
-        .status-box { padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .active { background-color: #d4edda; border: 1px solid #c3e6cb; }
-        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; }
-        .up { color: #28a745; font-weight: bold; }
-        .down { color: #dc3545; font-weight: bold; }
-        .neutral { color: #6c757d; }
         
-        /* Таблица позиций */
-        .positions-table-container {
-            width: 100%;
-            overflow-x: auto;
-            margin: 15px 0;
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-
-        .positions-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: white;
-        }
-
-        .positions-table th,
-        .positions-table td {
-            padding: 12px 15px;
-            text-align: right;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .positions-table th {
-            background: #f8f9fa;
-            font-weight: 600;
-            color: #495057;
-            position: sticky;
-            top: 0;
-        }
-
-        .positions-table td {
+        /* Улучшаем отображение чисел */
+        .number {
             font-family: 'Courier New', monospace;
         }
-
-        /* Колонки с фиксированной шириной */
-        .positions-table th:nth-child(1),
-        .positions-table td:nth-child(1) { 
-            width: 80px; 
-            text-align: left;
-        }
-        .positions-table th:nth-child(2),
-        .positions-table td:nth-child(2) { width: 150px; }
-        .positions-table th:nth-child(3),
-        .positions-table td:nth-child(3) { width: 120px; }
-        .positions-table th:nth-child(4),
-        .positions-table td:nth-child(4) { width: 120px; }
-        .positions-table th:nth-child(5),
-        .positions-table td:nth-child(5) { width: 80px; }
-
-        /* Итоговая строка */
-        .total-row td {
-            background: #f8f9fa;
-            font-weight: bold;
-            border-top: 2px solid #dee2e6;
-        }
-
-        /* Форматирование чисел */
-        .number-cell {
-            font-family: 'Courier New', monospace;
-            text-align: right;
-        }
-
-        /* Адаптивность для маленьких экранов */
-        @media screen and (max-width: 768px) {
-            .positions-table th,
-            .positions-table td {
-                padding: 8px;
-                font-size: 0.9em;
-            }
-        }
-
-        /* Стиль для случая отсутствия позиций */
-        .no-positions {
-            text-align: center;
-            padding: 20px;
-            color: #6c757d;
-            font-style: italic;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        /* Индикаторы */
-        .indicator {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-        }
-
-        .value {
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-
-        /* Заголовки */
-        h1 { font-size: clamp(1.5rem, 2.5vw, 2rem); margin-bottom: 10px; }
-        h2 { font-size: clamp(1.25rem, 2vw, 1.5rem); margin-bottom: 15px; }
-        h3 { font-size: clamp(1rem, 1.5vw, 1.25rem); margin: 0; }
-
-        /* Добавим стили для статусов обновления */
-        .ok {
-            color: #28a745;
-        }
-        .warning {
-            color: #ffc107;
-            font-weight: bold;
-        }
-        .error {
-            color: #dc3545;
-            font-weight: bold;
-            animation: blink 1s infinite;
+        
+        /* Добавляем анимацию для обновления данных */
+        @keyframes highlight {
+            0% { background-color: #fff; }
+            50% { background-color: #f0f8ff; }
+            100% { background-color: #fff; }
         }
         
-        @keyframes blink {
-            50% { opacity: 0.5; }
+        .highlight {
+            animation: highlight 1s ease-in-out;
         }
     </style>
     <script>
-    function updateData() {
-        fetch('/api/market_data')
-            .then(response => response.json())
-            .then(data => {
-                updateElement('current-price', formatPrice(data.current_price));
-                updateElement('price-change', formatPercentage(data.technical_indicators.price_change_24h));
-                updateElement('volume-24h', formatVolume(data.technical_indicators.volume_24h));
-                updateElement('rsi', formatNumber(data.technical_indicators.rsi));
-                updateElement('sma20', formatPrice(data.technical_indicators.sma20));
-                updateElement('sma50', formatPrice(data.technical_indicators.sma50));
-                updateTrend(data.technical_indicators.trend);
-                updateMarketConditions(data.market_conditions);
-                updateLastUpdate();
-            })
-            .catch(error => console.error('Ошибка:', error));
-
-        fetch('/api/trading_stats')
-            .then(response => response.json())
-            .then(data => {
-                updateElement('balance', formatPrice(data.balance) + ' USDT');
-                updateSignal(data.last_signal);
-            })
-            .catch(error => console.error('Ошибка:', error));
-    }
-
-    function formatPrice(value) {
-        return new Intl.NumberFormat('ru-RU', { 
-            minimumFractionDigits: 2, 
-            maximumFractionDigits: 2 
-        }).format(value);
-    }
-
-    function formatPercentage(value) {
-        const formatted = value.toFixed(2) + '%';
-        const element = document.getElementById('price-change');
-        if (element) {
-            element.className = value > 0 ? 'up' : value < 0 ? 'down' : 'neutral';
+        function refreshPage() {
+            location.reload();
         }
-        return formatted;
-    }
-
-    function formatVolume(value) {
-        return (value / 1000).toFixed(2) + 'K USDT';
-    }
-
-    function formatNumber(value) {
-        return value.toFixed(2);
-    }
-
-    function updateElement(id, value) {
-        const element = document.getElementById(id);
-        if (element) element.textContent = value;
-    }
-
-    function updateSignal(signal) {
-        const element = document.getElementById('last-signal');
-        if (element) {
-            element.textContent = signal;
-            element.className = 'signal-badge signal-' + signal.toLowerCase();
+        
+        // Автообновление каждые 30 секунд
+        setInterval(refreshPage, 30000);
+        
+        // Подсветка обновленных значений
+        function highlightUpdates() {
+            const indicators = document.querySelectorAll('.indicator-value');
+            indicators.forEach(indicator => {
+                const oldValue = indicator.getAttribute('data-value');
+                const newValue = indicator.textContent;
+                if (oldValue && oldValue !== newValue) {
+                    indicator.classList.add('highlight');
+                }
+                indicator.setAttribute('data-value', newValue);
+            });
         }
-    }
-
-    function updateTrend(trend) {
-        const element = document.getElementById('trend');
-        if (element) {
-            element.textContent = trend === 'up' ? '↑ Восходящий' : '↓ Нисходящий';
-            element.className = trend === 'up' ? 'up' : 'down';
+        
+        // Форматирование чисел
+        function formatNumber(num) {
+            return new Intl.NumberFormat('ru-RU').format(num);
         }
-    }
-
-    function updateLastUpdate() {
-        const element = document.getElementById('last-update-time');
-        if (element) {
-            element.textContent = new Date().toLocaleString('ru-RU');
-        }
-    }
-
-    // Обновляем данные каждые 30 секунд
-    setInterval(updateData, 30000);
+        
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            highlightUpdates();
+        });
     </script>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>GOAT Trading Bot Monitor</h1>
-            <p>Автообновление каждые 30 секунд | Последнее обновление: 
-                <span id="last-update-time" class="{{ state.update_status }}">
-                    {{ state.last_update }} ({{ state.time_since_update_str }})
-                </span>
-            </p>
+        <div class="status-block">
+            <h1>Монитор торгового бота
+                <button class="refresh-button" onclick="refreshPage()">Обновить</button>
+            </h1>
+        </div>
+        
+        <div class="grid">
+            <div class="status-block">
+                <h2>Общая информация</h2>
+                <div class="indicator">
+                    <span class="indicator-label">Статус:</span>
+                    <span class="indicator-value {{ 'status-active' if data.status == 'Активен' else 'status-inactive' }}">
+                        {{ data.status }}
+                    </span>
+                </div>
+                <div class="indicator">
+                    <span class="indicator-label">Последнее обновление:</span>
+                    <span class="indicator-value">{{ data.last_update }}</span>
+                </div>
+                <div class="indicator">
+                    <span class="indicator-label">Баланс:</span>
+                    <span class="indicator-value">{{ "%.2f"|format(data.balance or 0) }} USDT</span>
+                </div>
+                <div class="indicator">
+                    <span class="indicator-label">Текущая цена:</span>
+                    {% set price_change = data.technical_indicators.get('Изменение цены (24ч)') %}
+                    <span class="indicator-value {{ 'price-up' if price_change and price_change > 0 else 'price-down' }}">
+                        {{ "%.2f"|format(data.current_price or 0) }}
+                    </span>
+                </div>
+                <div class="indicator">
+                    <span class="indicator-label">Последний сигнал:</span>
+                    <span class="indicator-value">{{ data.last_signal }}</span>
+                </div>
+            </div>
+
+            <div class="status-block">
+                <h2>Технические индикаторы</h2>
+                {% for key, value in data.technical_indicators.items() %}
+                    <div class="indicator">
+                        <span class="indicator-label">{{ key }}:</span>
+                        <span class="indicator-value">
+                            {% if value is not none %}
+                                {% if value is number %}
+                                    {% if key == 'Изменение цены (24ч)' or key == 'Волатильность' %}
+                                        <span class="{{ 'price-up' if value > 0 else 'price-down' }}">
+                                            {{ "%+.2f"|format(value) }}%
+                                        </span>
+                                    {% elif 'RSI' in key %}
+                                        <span class="{{ 'warning' if value > 70 or value < 30 else '' }}">
+                                            {{ "%.1f"|format(value) }}
+                                        </span>
+                                    {% elif 'Максимум' in key or 'Минимум' in key %}
+                                        {{ "%.2f"|format(value) }}
+                                    {% else %}
+                                        {{ "%.2f"|format(value) }}
+                                    {% endif %}
+                                {% else %}
+                                    {% if value in ['Восходящий', 'Перекуплен'] %}
+                                        <span class="price-up">{{ value }}</span>
+                                    {% elif value in ['Нисходящий', 'Перепродан'] %}
+                                        <span class="price-down">{{ value }}</span>
+                                    {% else %}
+                                        {{ value }}
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                н/д
+                            {% endif %}
+                        </span>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="status-block">
+                <h2>Рыночные условия</h2>
+                {% for key, value in data.market_conditions.items() %}
+                    <div class="indicator">
+                        <span class="indicator-label">{{ key }}:</span>
+                        <span class="indicator-value">{{ value if value is not none else 'н/д' }}</span>
+                    </div>
+                {% endfor %}
+            </div>
         </div>
 
-        <div class="grid">
-            <div class="card">
-                <h2>Статус системы</h2>
-                <div class="status-box {{ 'active' if state.status == 'active' else 'error' }}">
-                    <div class="indicator">
-                        <h3>Состояние бота</h3>
-                        <p id="bot-status" class="value">{{ state.status.upper() }}</p>
-                    </div>
-                    <div class="indicator">
-                        <h3>Баланс USDT</h3>
-                        <p id="balance" class="value">{{ state.balance }} USDT</p>
-                    </div>
-                    <div class="indicator">
-                        <h3>Последний сигнал</h3>
-                        <p id="last-signal" class="value">{{ state.last_signal }}</p>
-                    </div>
+        {% if data.open_positions %}
+        <div class="status-block">
+            <h2>Открытые позиции</h2>
+            {% for position in data.open_positions %}
+                <div class="indicator">
+                    <span class="indicator-label">{{ position.asset }}:</span>
+                    <span class="indicator-value">
+                        {{ "%.8f"|format(position.amount or 0) }}
+                        ({{ "%.2f"|format(position.value_usdt or 0) }} USDT)
+                    </span>
                 </div>
-            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
-            <div class="card">
-                <h2>Открытые позиции</h2>
-                {% if state.open_positions %}
-                    {% set total_value = namespace(sum=0) %}
-                    {% for position in state.open_positions %}
-                        {% set total_value.sum = total_value.sum + position.value_usdt %}
-                    {% endfor %}
-                    
-                    <div class="positions-summary">
-                        <p>Общая стоимость портфеля: <span class="value">{{ "%.2f"|format(total_value.sum) }} USDT</span></p>
-                    </div>
-                    
-                    <div class="positions-table-container">
-                        <table class="positions-table">
-                            <thead>
-                                <tr>
-                                    <th>Актив</th>
-                                    <th>Количество</th>
-                                    <th>Цена USDT</th>
-                                    <th>Стоимость</th>
-                                    <th>Доля %</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for position in state.open_positions %}
-                                <tr>
-                                    <td><strong>{{ position.asset }}</strong></td>
-                                    <td class="number-cell">{{ "%.8f"|format(position.amount) }}</td>
-                                    <td class="number-cell">{{ "%.2f"|format(position.current_price) }}</td>
-                                    <td class="number-cell">{{ "%.2f"|format(position.value_usdt) }}</td>
-                                    <td class="number-cell">{{ "%.1f"|format(position.value_usdt / total_value.sum * 100) }}</td>
-                                </tr>
-                                {% endfor %}
-                                <tr class="total-row">
-                                    <td colspan="3"><strong>Итого:</strong></td>
-                                    <td class="number-cell"><strong>{{ "%.2f"|format(total_value.sum) }}</strong></td>
-                                    <td class="number-cell"><strong>100.0</strong></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <p class="no-positions">Нет открытых позиций</p>
-                {% endif %}
-            </div>
+        <div class="status-block">
+            <h2>Торговая статистика</h2>
+            {% for key, value in data.trading_stats.items() %}
+                <div class="indicator">
+                    <span class="indicator-label">{{ key }}:</span>
+                    <span class="indicator-value">
+                        {% if value is not none %}
+                            {% if value is number %}
+                                {% if key == 'Процент успешных' %}
+                                    {{ "%.1f"|format(value) }}%
+                                {% elif key == 'Общая прибыль' %}
+                                    <span class="{{ 'success' if value > 0 else 'error' if value < 0 else '' }}">
+                                        {{ "%+.2f"|format(value) }} USDT
+                                    </span>
+                                {% else %}
+                                    {{ "%.0f"|format(value) }}
+                                {% endif %}
+                            {% else %}
+                                {{ value }}
+                            {% endif %}
+                        {% else %}
+                            н/д
+                        {% endif %}
+                    </span>
+                </div>
+            {% endfor %}
+        </div>
 
-            <div class="card">
-                <h2>Рыночные данные</h2>
-                <h3>Текущая цена BTC</h3>
-                <p id="current-price">{{ market_data.current_price }} USDT</p>
-                <h3>Изменение цены (24ч)</h3>
-                <p id="price-change" class="{{ 'up' if market_data.price_change_24h > 0 else 'down' }}">
-                    {{ "%.2f"|format(market_data.price_change_24h) }}%
-                </p>
-                <h3>Объем торгов (24ч)</h3>
-                <p>{{ "%.2fK"|format(market_data.volume_24h/1000) }} USDT</p>
-            </div>
-
-            <div class="card">
-                <h2>Технические индикаторы</h2>
-                <div class="indicator">
-                    <h3>RSI</h3>
-                    <p id="rsi" class="value">{{ "%.2f"|format(market_data.rsi) }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>SMA20</h3>
-                    <p id="sma20" class="value">{{ "%.2f"|format(market_data.sma20) }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>SMA50</h3>
-                    <p id="sma50" class="value">{{ "%.2f"|format(market_data.sma50) }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>Тренд</h3>
-                    <p id="trend" class="{{ 'up' if market_data.trend == 'up' else 'down' }}">
-                        {{ "↑" if market_data.trend == 'up' else "↓" }} {{ market_data.trend.title() }}
-                    </p>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2>Рыночные условия</h2>
-                <div class="indicator">
-                    <h3>Волатильность</h3>
-                    <p id="volatility">{{ market_conditions.volatility_level.title() }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>Объем</h3>
-                    <p id="volume">{{ market_conditions.volume_analysis.title() }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>Фаза рынка</h3>
-                    <p id="market-phase">{{ market_conditions.market_phase.title() }}</p>
-                </div>
-            </div>
-
-            {% if state.trading_stats %}
-            <div class="card">
-                <h2>Статистика торговли</h2>
-                <div class="indicator">
-                    <h3>Всего сделок</h3>
-                    <p>{{ state.trading_stats.total_trades }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>Успешных сделок</h3>
-                    <p>{{ state.trading_stats.successful_trades }}</p>
-                </div>
-                <div class="indicator">
-                    <h3>Процент успешных</h3>
-                    <p>{{ "%.2f"|format(state.trading_stats.win_rate) }}%</p>
-                </div>
-                <div class="indicator">
-                    <h3>Общая прибыль</h3>
-                    <p class="{{ 'profit' if state.trading_stats.total_profit > 0 else 'loss' }}">
-                        {{ "%.2f"|format(state.trading_stats.total_profit) }} USDT
-                    </p>
-                </div>
-            </div>
-            {% endif %}
+        <div class="status-block">
+            <p><small>Время сервера: {{ current_time }}</small></p>
         </div>
     </div>
 </body>

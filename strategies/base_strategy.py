@@ -3,6 +3,11 @@ from abc import ABC, abstractmethod
 class SignalStrategy(ABC):
     """Базовый класс для торговых стратегий"""
     
+    def __init__(self, symbol: str, timeframe: str):
+        """Инициализация базового класса стратегии"""
+        self.symbol = symbol
+        self.timeframe = timeframe
+    
     @abstractmethod
     def generate_signal(self, data, indicators):
         """

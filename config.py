@@ -9,7 +9,11 @@ TRADING_PARAMS = {
     'limit': 100,
     'interval_seconds': 300,
     'risk_percentage': 1,
-    'account_balance': None
+    'account_balance': None,
+    'max_pairs': 10,  # Максимальное количество пар для торговли
+    'min_daily_volume': 1000000,  # Минимальный дневной объем в USDT
+    'min_volatility': 1.0,  # Минимальная волатильность в %
+    'max_volatility': 10.0,  # Максимальная волатильность в %
 }
 
 # Параметры индикаторов

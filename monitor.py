@@ -1,204 +1,167 @@
-from flask import Flask, render_template, jsonify
-import json
+from flask import Flask, render_template, url_for
 from datetime import datetime
-import time
-import threading
+import json
+import os
 
-app = Flask(__name__)
-app.config['JSON_AS_ASCII'] = False  # Включаем поддержку Unicode в JSON
-app.config['TEMPLATES_AUTO_RELOAD'] = True  # Автоматическая перезагрузка шаблонов
+app = Flask(__name__, static_folder='static')
 
 def load_bot_state():
     """Загрузка состояния бота из файла"""
     try:
-        # Добавляем кэширование состояния
-        if hasattr(load_bot_state, 'cache'):
-            cache = load_bot_state.cache
-            if time.time() - cache['timestamp'] < 1:  # Кэш действителен 1 секунду
-                return cache['state']
-        
-        with open('bot_state.json', 'r', encoding='utf-8') as f:
-            state = json.load(f)
-            current_time = datetime.now()
-            last_update = datetime.strptime(state['last_update'], "%Y-%m-%d %H:%M:%S")
-            time_diff = (current_time - last_update).total_seconds()
-            
-            # Форматируем время последнего обновления
-            if time_diff < 60:
-                time_str = f"{int(time_diff)} секунд назад"
-            elif time_diff < 3600:
-                minutes = int(time_diff // 60)
-                time_str = f"{minutes} минут назад"
-            else:
-                hours = int(time_diff // 3600)
-                time_str = f"{hours} часов назад"
-            
-            print(f"Состояние бота загружено: {current_time}")
-            print(f"Последнее обновление: {state['last_update']} ({time_str})")
-            
-            # Определяем статус обновления
-            if time_diff > 300:  # Более 5 минут
-                state['update_status'] = 'warning'
-                print(f"ВНИМАНИЕ: Данные устарели (более 5 минут)")
-            elif time_diff > 600:  # Более 10 минут
-                state['update_status'] = 'error'
-                print(f"ОШИБКА: Данные сильно устарели (более 10 минут)")
-            else:
-                state['update_status'] = 'ok'
-            
-            state['time_since_update'] = time_diff
-            state['time_since_update_str'] = time_str
-            
-            # Кэшируем состояние
-            load_bot_state.cache = {
-                'state': state,
-                'timestamp': time.time()
-            }
-            
-            return state
-    except Exception as e:
-        print(f"Ошибка чтения состояния: {e}")
+        if os.path.exists('bot_state.json'):
+            with open('bot_state.json', 'r', encoding='utf-8') as f:
+                state = json.load(f)
+                return state
         return None
+    except Exception as e:
+        print(f"Ошибка при загрузке состояния бота: {e}")
+        return None
+
+def format_time_ago(timestamp_str):
+    """Форматирование времени"""
+    try:
+        if not timestamp_str:
+            return "неизвестно"
+        
+        last_update = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+        now = datetime.now()
+        diff = now - last_update
+        
+        minutes = diff.total_seconds() / 60
+        if minutes < 60:
+            return f"{int(minutes)} минут назад"
+        elif minutes < 1440:  # меньше 24 часов
+            hours = int(minutes / 60)
+            return f"{hours} часов назад"
+        else:
+            days = int(minutes / 1440)
+            return f"{days} дней назад"
+    except Exception as e:
+        print(f"Ошибка при форматировании времени: {e}")
+        return "неизвестно"
 
 @app.route('/')
 def index():
-    """Отображение главной страницы мониторинга"""
-    state = load_bot_state()
-    if not state:
-        return render_template(
-            'error.html',
-            error="Бот не запущен или файл состояния недоступен"
-        )
-
-    try:
-        # Проверяем актуальность данных
-        current_time = datetime.now()
-        last_update = datetime.strptime(state['last_update'], "%Y-%m-%d %H:%M:%S")
-        time_diff = (current_time - last_update).total_seconds()
-        
-        # Добавляем информацию о времени обновления
-        state['time_since_update'] = time_diff
-        state['time_since_update_str'] = f"{int(time_diff)} секунд назад"
-        
-        # Форматируем данные для отображения
-        market_data = {
-            'current_price': state.get('current_price', 0),
-            'price_change_24h': state.get('technical_indicators', {}).get('price_change_24h', 0),
-            'volume_24h': state.get('technical_indicators', {}).get('volume_24h', 0),
-            'trend': state.get('technical_indicators', {}).get('trend', 'unknown'),
-            'volatility': state.get('technical_indicators', {}).get('volatility', 0),
-            'rsi': state.get('technical_indicators', {}).get('rsi', 0),
-            'sma20': state.get('technical_indicators', {}).get('sma20', 0),
-            'sma50': state.get('technical_indicators', {}).get('sma50', 0),
-            'bb_position': state.get('technical_indicators', {}).get('bb_position', 0),
-            'momentum': state.get('technical_indicators', {}).get('market_momentum', 0)
-        }
-
-        # Получаем информацию о рыночных условиях
-        market_conditions = state.get('market_conditions', {
-            'volatility_level': 'unknown',
-            'volume_analysis': 'unknown',
-            'market_phase': 'unknown'
-        })
-        
-        # Форматируем время последнего обновления
-        last_update = datetime.strptime(state['last_update'], "%Y-%m-%d %H:%M:%S")
-        time_since_update = (datetime.now() - last_update).total_seconds()
-        
-        return render_template(
-            'index.html',
-            state=state,
-            market_data=market_data,
-            market_conditions=market_conditions,
-            last_update=last_update,
-            time_since_update=time_diff
-        )
-    except Exception as e:
-        print(f"Ошибка при форматировании данных: {e}")
-        return render_template(
-            'error.html',
-            error=f"Ошибка обработки данных: {str(e)}"
-        )
-
-@app.route('/status')
-def status():
-    """API endpoint для получения статуса бота"""
-    state = load_bot_state()
-    if state:
-        return jsonify(state)
-    return jsonify({'error': 'Не удалось загрузить состояние бота'}), 500
-
-@app.route('/api/market_data')
-def market_data():
-    """API endpoint для получения рыночных данных"""
-    state = load_bot_state()
-    if not state:
-        return jsonify({'error': 'Не удалось загрузить состояние бота'}), 500
-    
-    return jsonify({
-        'current_price': state.get('current_price'),
-        'technical_indicators': state.get('technical_indicators'),
-        'market_conditions': state.get('market_conditions')
-    })
-
-@app.route('/api/trading_stats')
-def trading_stats():
-    """API endpoint для получения торговой статистики"""
-    state = load_bot_state()
-    if not state:
-        return jsonify({'error': 'Не удалось загрузить состояние бота'}), 500
-    
-    return jsonify({
-        'balance': state.get('balance'),
-        'last_signal': state.get('last_signal'),
-        'risk_metrics': state.get('risk_metrics')
-    })
-
-@app.route('/switch_strategy/<strategy_name>')
-def switch_strategy(strategy_name):
-    """API endpoint для переключения стратегии"""
+    """Главная страница"""
     try:
         state = load_bot_state()
         if not state:
-            return jsonify({'error': 'Не удалось загрузить состояние бота'}), 500
-        
-        # Проверяем существование стратегии
-        available_strategies = ['MACD', 'RSI_BB']
-        if strategy_name not in available_strategies:
-            return jsonify({
-                'error': f'Неизвестная стратегия. Доступные стратегии: {", ".join(available_strategies)}'
-            }), 400
-        
-        # Обновляем стратегию в состоянии
-        state['current_strategy'] = strategy_name
-        
-        # Сохраняем обновленное состоя��ие
-        with open('bot_state.json', 'w', encoding='utf-8') as f:
-            json.dump(state, f, indent=4, ensure_ascii=False)
-        
-        return jsonify({
-            'success': True, 
-            'message': f'Стратегия изменена на {strategy_name}',
-            'strategy': strategy_name
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'error': f'Ошибка при переключении стратегии: {str(e)}'
-        }), 500
+            return render_template('error.html', error="Не удалось загрузить состояние бота")
 
-def create_app():
-    return app
+        # Словарь для перевода названий индикаторов
+        indicator_names = {
+            'rsi': 'RSI',
+            'sma20': 'SMA 20',
+            'sma50': 'SMA 50',
+            'bb_high': 'Верхняя BB',
+            'bb_low': 'Нижняя BB',
+            'bb_mid': 'Средняя BB',
+            'price_change_24h': 'Изменение цены (24ч)',
+            'volume_24h': 'Объем (24ч)',
+            'volatility': 'Волатильность',
+            'volatility_24h': 'Волатильность (24ч)',
+            'highest_24h': 'Максимум (24ч)',
+            'lowest_24h': 'Минимум (24ч)',
+            'trend': 'Тренд',
+            'trend_strength': 'Сила тренда',
+            'market_momentum': 'Моментум рынка',
+            'rsi_signal': 'Сигнал RSI',
+            'bb_position': 'Позиция BB',
+            'ma_cross': 'Пересечение MA',
+            'momentum': 'Моментум'
+        }
 
-def save_bot_state(state):
-    """Сохранение состояния бота в файл"""
-    try:
-        with open('bot_state.json', 'w', encoding='utf-8') as f:
-            json.dump(state, f, indent=4, ensure_ascii=False)
-        return True
+        # Словарь для перевода значений индикаторов
+        value_translations = {
+            'Medium': 'Средний',
+            'Normal': 'Нормальный',
+            'Uptrend': 'Восходящий',
+            'Downtrend': 'Нисходящий',
+            'Low': 'Низкий',
+            'High': 'Высокий',
+            'up': 'Восходящий',
+            'down': 'Нисходящий',
+            'overbought': 'Перекуплен',
+            'oversold': 'Перепродан',
+            'neutral': 'Нейтральный',
+            '1': 'Да',
+            '-1': 'Нет',
+            '0': 'Нет сигнала'
+        }
+
+        # Словарь для перевода рыночных условий
+        market_conditions_names = {
+            'volatility_level': 'Уровень волатильности',
+            'volume_analysis': 'Анализ объема',
+            'market_phase': 'Фаза рынка',
+            'trend_reliability': 'Надежность тренда'
+        }
+
+        # Словарь для перевода торговой статистики
+        trading_stats_names = {
+            'total_trades': 'Всего сделок',
+            'successful_trades': 'Успешных сделок',
+            'failed_trades': 'Неудачных сделок',
+            'win_rate': 'Процент успешных',
+            'total_profit': 'Общая прибыль'
+        }
+
+        current_time = datetime.now()
+        last_update = state.get('last_update', '')
+        time_ago = format_time_ago(last_update)
+
+        # Форматируем технические индикаторы
+        technical_indicators = {}
+        for k, v in state.get('technical_indicators', {}).items():
+            key = indicator_names.get(k, k)
+            if isinstance(v, (int, float)):
+                value = float(v)
+            else:
+                value = value_translations.get(str(v), v)
+            technical_indicators[key] = value
+
+        # Форматируем данные для отображения
+        formatted_data = {
+            'status': 'Активен' if state.get('status') == 'active' else 'Неактивен',
+            'last_update': f"{last_update} ({time_ago})",
+            'balance': float(state.get('balance', 0) or 0),
+            'current_price': float(state.get('current_price', 0) or 0),
+            'last_signal': {
+                'BUY': 'ПОКУПКА',
+                'SELL': 'ПРОДАЖА',
+                'HOLD': 'ОЖИДАНИЕ'
+            }.get(state.get('last_signal', 'HOLD'), 'ОЖИДАНИЕ'),
+            'technical_indicators': technical_indicators,
+            'market_conditions': {
+                market_conditions_names.get(k, k): value_translations.get(str(v), v)
+                for k, v in state.get('market_conditions', {}).items()
+            },
+            'risk_metrics': {
+                k: float(v) if isinstance(v, (int, float)) else v
+                for k, v in state.get('risk_metrics', {}).items()
+            },
+            'open_positions': [
+                {
+                    'asset': pos.get('asset', ''),
+                    'amount': float(pos.get('amount', 0) or 0),
+                    'value_usdt': float(pos.get('value_usdt', 0) or 0)
+                }
+                for pos in state.get('open_positions', [])
+            ],
+            'trading_stats': {
+                trading_stats_names.get(k, k): float(v) if isinstance(v, (int, float)) else v
+                for k, v in state.get('trading_stats', {}).items()
+            }
+        }
+
+        return render_template(
+            'index.html',
+            data=formatted_data,
+            current_time=current_time.strftime("%Y-%m-%d %H:%M:%S")
+        )
     except Exception as e:
-        print(f"Ошибка сохранения состояния: {e}")
-        return False
+        print(f"Ошибка при форматировании данных: {e}")
+        return render_template('error.html', error=str(e))
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(host='0.0.0.0', debug=True) 

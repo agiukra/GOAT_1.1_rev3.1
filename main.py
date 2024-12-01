@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from queue import Queue
 from strategies.strategy_manager import StrategyManager
+from strategies.goat_strategy import GoatStrategy
 
 warnings.filterwarnings('ignore')
 
@@ -58,6 +59,89 @@ def setup_logging():
     
     return logger
 
+class PairAnalyzer:
+    def __init__(self, client):
+        self.client = client
+        self.logger = logging.getLogger('TradingBot.PairAnalyzer')
+
+    def get_available_pairs(self):
+        """Получение всех доступных USDT пар"""
+        try:
+            exchange_info = self.client.get_exchange_info()
+            usdt_pairs = [
+                symbol['symbol'] for symbol in exchange_info['symbols']
+                if symbol['symbol'].endswith('USDT') 
+                and symbol['status'] == 'TRADING'
+                and symbol['isSpotTradingAllowed']
+            ]
+            return usdt_pairs
+        except Exception as e:
+            self.logger.error(f"Ошибка получения списка пар: {str(e)}")
+            return []
+
+    def analyze_pair(self, symbol):
+        """Анализ конкретной торговой пары"""
+        try:
+            # Получаем базовую информацию
+            ticker = self.client.get_ticker(symbol=symbol)
+            
+            # Получаем данные для анализа
+            klines = self.client.get_klines(
+                symbol=symbol,
+                interval='1d',
+                limit=30
+            )
+            
+            df = pd.DataFrame(klines, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_volume', 'trades_count', 'taker_buy_base',
+                'taker_buy_quote', 'ignore'
+            ])
+            
+            df['close'] = df['close'].astype(float)
+            df['volume'] = df['volume'].astype(float)
+            
+            # Рассчитываем метрики
+            volatility = df['close'].pct_change().std() * 100
+            avg_volume = df['volume'].mean()
+            price_change = float(ticker['priceChangePercent'])
+            
+            return {
+                'symbol': symbol,
+                'volatility': volatility,
+                'avg_daily_volume': avg_volume,
+                'price_change_24h': price_change,
+                'score': self._calculate_pair_score(volatility, avg_volume, price_change)
+            }
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа пары {symbol}: {str(e)}")
+            return None
+
+    def _calculate_pair_score(self, volatility, volume, price_change):
+        """Расчет оценки пары на основе метрик"""
+        try:
+            # Нормализуем значения
+            vol_score = min(volatility / 5, 1)  # Оптимальная волатильность около 5%
+            volume_score = min(volume / 1000000, 1)  # Нормализуем объем
+            momentum_score = abs(price_change) / 10  # Нормализуем изменение цены
+            
+            # Веса для разных метрик
+            weights = {
+                'volatility': 0.4,
+                'volume': 0.4,
+                'momentum': 0.2
+            }
+            
+            # Итоговая оценка
+            return (
+                vol_score * weights['volatility'] +
+                volume_score * weights['volume'] +
+                momentum_score * weights['momentum']
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка расчета оценки: {str(e)}")
+            return 0
+
 class TradingBot:
     def __init__(self):
         """Инициализация торгового бота"""
@@ -69,6 +153,7 @@ class TradingBot:
         self.balance = None
         self.signal_queue = Queue()
         self.data_lock = threading.Lock()
+        self.selected_pairs = []  # Добавляем список выбранных пар
 
         try:
             os.makedirs('trades', exist_ok=True)
@@ -76,11 +161,15 @@ class TradingBot:
             self.client = Client(config.API_KEY, config.API_SECRET)
             self.logger.info("API подключен успешно")
             self._update_balance()
+            
+            # Анализируем и выбираем пары при инициализации
+            self.analyze_and_select_pairs()
+            
         except Exception as e:
             self.logger.error(f"Ошибка инициализации бота: {str(e)}", exc_info=True)
             self.client = None
 
-        # Инициализируем менеджер стратегий вместо одной стратегии
+        # Инициалиируем менеджер стратегий вместо одной стратегии
         self.strategy_manager = StrategyManager(config.INDICATOR_PARAMS)
 
     def _initialize_bot_state(self):
@@ -178,7 +267,7 @@ class TradingBot:
 
             df.set_index('timestamp', inplace=True)
             self.data = df
-            print("Данные получены успешно")
+            print("Данны получены успешно")
             return True
 
         except Exception as e:
@@ -221,7 +310,7 @@ class TradingBot:
                 self.logger.error("Баланс не определен")
                 return None
             
-            # Рассчитываем риск от текущего баланса
+            # Расситываем риск от текущего баланса
             risk_percentage = config.TRADING_PARAMS.get('risk_percentage', 1)  # 1% по умолчанию
             risk_amount = self.balance * (risk_percentage / 100)
 
@@ -288,7 +377,7 @@ class TradingBot:
             volume_24h = self.data['volume'].iloc[-24:].sum()
             
             # Анализ тренда
-            trend_direction = "Восходящий" if last_row['trend_direction'] == 1 else "Нисходящий" if last_row['trend_direction'] == -1 else "Боковой"
+            trend_direction = "Восходящий" if last_row['trend_direction'] == 1 else "Нисходящий" if last_row['trend_direction'] == -1 else "Боквой"
             trend_strength = float(last_row['trend_strength'])
             
             # Анализ волатильности
@@ -304,7 +393,7 @@ class TradingBot:
                 f"- Изменение (24ч): {price_change_24h:+.2f}%\n"
                 f"- Волатильность: {volatility:.2f}%\n"
                 f"- Объем (24ч): {volume_24h:.2f} USDT\n"
-                f"\nТРЕНДОВЫЙ АНАЛИЗ:\n"
+                f"\nТРЕНОВЫЙ АНАЛИЗ:\n"
                 f"- Направление: {trend_direction}\n"
                 f"- Сила тренда: {trend_strength:.2f}%\n"
                 f"- MA Cross: {'Бычье' if last_row['ma_cross'] == 1 else 'Медвежье' if last_row['ma_cross'] == -1 else 'Нет'}\n"
@@ -345,7 +434,7 @@ class TradingBot:
                     f"\nСТАТИСТИКА ТОРГОВЛИ:\n"
                     f"{'='*50}\n"
                     f"- Всего сделок: {stats['total_trades']}\n"
-                    f"- Успешных сделок: {stats['successful_trades']}\n"
+                    f"- Успешны сделок: {stats['successful_trades']}\n"
                     f"- еудачных сделок: {stats['failed_trades']}\n"
                     f"- Процент успешных: {stats['win_rate']:.2f}%\n"
                     f"- Общая прибыль: {stats['total_profit']:.2f} USDT\n"
@@ -368,7 +457,7 @@ class TradingBot:
                 self.logger.info(trade_info)
                 
         except Exception as e:
-            self.logger.error(f"Ошибка при формировании анализа: {str(e)}", exc_info=True)
+            self.logger.error(f"Ошибка при формировании нализа: {str(e)}", exc_info=True)
 
     def execute_trade(self, signal, metrics):
         """Выполнение торговой операции"""
@@ -420,7 +509,7 @@ class TradingBot:
                 stop_loss = executed_price * 1.01
                 take_profit = executed_price * 0.97
 
-            # Создаем OCO ордер (комбинированный стоп-лосс и тейк-профит)
+            # Содаем OCO ордер (комбинированный стоп-лосс и тейк-профит)
             oco_order = self.client.create_oco_order(
                 symbol=config.TRADING_PARAMS['symbol'],
                 side=Client.SIDE_SELL if signal == 'BUY' else Client.SIDE_BUY,
@@ -513,7 +602,7 @@ class TradingBot:
                 'market_momentum': market_strength['momentum']
             }
 
-            # Обновленный формат рыночных условий
+            # Обновленный ормат рыночных условий
             market_conditions = {
                 'volatility_level': 'High' if volatility > 2 else 'Medium' if volatility > 1 else 'Low',
                 'volume_analysis': self._analyze_volume().title(),
@@ -671,7 +760,6 @@ class TradingBot:
         cycle_count = 0
 
         try:
-            # Создаем пул потоков для разных задач
             with ThreadPoolExecutor(max_workers=4) as executor:
                 while True:
                     try:
@@ -680,21 +768,31 @@ class TradingBot:
                         print(f"\nЦикл #{cycle_count} | Время: {current_time}")
                         print("Статус: Бот работает...")
 
-                        # Сначала обновляем баланс
+                        # Обновляем баланс
                         self._update_balance()
 
-                        # Получаем и анализируем данные
-                        if self._fetch_and_analyze_data():
-                            # Обновляем состояние только после успешного получения данных
-                            self.update_bot_state()
-                        else:
-                            self.logger.error("Не удалось получить или проанализировать данные")
+                        # Каждые 6 часов обновляем список пар
+                        if cycle_count % 72 == 1:  # 72 цикла по 5 минут = 6 часов
+                            self.analyze_and_select_pairs()
+
+                        # Проходим по всем выбранным парам
+                        for pair_info in self.selected_pairs:
+                            pair = pair_info['symbol']
+                            print(f"\nАнализ пары: {pair}")
+                            
+                            # Обновляем текущую торговую пару
+                            config.TRADING_PARAMS['symbol'] = pair
+                            
+                            # Получаем и анализируем данные для пары
+                            if self._fetch_and_analyze_data():
+                                self.update_bot_state()
+                            else:
+                                self.logger.error(f"Не удалось получить или проанализировать данные для {pair}")
 
                         # Ждем указанный интервал
                         interval = config.TRADING_PARAMS.get('interval_seconds', 300)
                         print(f"Ожидание {interval} секунд до следующей проверки...")
                         
-                        # Добавляем обработку прерывания
                         try:
                             time.sleep(interval)
                         except KeyboardInterrupt:
@@ -1003,7 +1101,7 @@ class TradingBot:
                 'recent_trades': recent_trades
             }
         except Exception as e:
-            self.logger.error(f"Ошибка получения статистики торговли: {str(e)}", exc_info=True)
+            self.logger.error(f"Ошибка получения ста��истики торговли: {str(e)}", exc_info=True)
             return None
 
     def _get_open_positions(self):
@@ -1033,7 +1131,7 @@ class TradingBot:
                     
                     # Проверяем, есть ли реальная позиция
                     if total_amount > 0:
-                        # Получаем текущую цену
+                        # олучаем текущую цену
                         ticker = self.client.get_symbol_ticker(symbol=symbol)
                         current_price = float(ticker['price'])
                         
@@ -1066,8 +1164,74 @@ class TradingBot:
             self.logger.error(f"Ошибка получения открытых позиций: {str(e)}", exc_info=True)
             return None
 
+    def check_strategy_switch(self):
+        flag_file = 'strategy_switch.flag'
+        if os.path.exists(flag_file):
+            try:
+                with open(flag_file, 'r', encoding='utf-8') as f:
+                    new_strategy = f.readline().strip()
+                os.remove(flag_file)  # Удаляем флаг после прочтения
+                return new_strategy
+            except Exception as e:
+                print(f"Ошибка при проверке флага смены стратегии: {e}")
+        return None
+
+    def analyze_and_select_pairs(self):
+        """Анализ и выбор торговых пар"""
+        try:
+            analyzer = PairAnalyzer(self.client)
+            
+            # Получаем все доступные пары
+            available_pairs = analyzer.get_available_pairs()
+            self.logger.info(f"Найдено {len(available_pairs)} доступных пар")
+            
+            # Анализируем каждую пару
+            pair_analyses = []
+            for pair in available_pairs:
+                analysis = analyzer.analyze_pair(pair)
+                if analysis:
+                    pair_analyses.append(analysis)
+            
+            # Сортируем пары по оценке
+            sorted_pairs = sorted(pair_analyses, key=lambda x: x['score'], reverse=True)
+            
+            # Выбираем топ-10 пар или настраиваемое количество
+            top_n = config.TRADING_PARAMS.get('max_pairs', 10)
+            self.selected_pairs = sorted_pairs[:top_n]
+            
+            # Сохраняем состояние пар
+            self._save_pairs_state()
+            
+            # Выводим информацию о выбранных парах
+            self.logger.info("\nВыбранные торговые пар��:")
+            for pair in self.selected_pairs:
+                self.logger.info(
+                    f"Пара: {pair['symbol']} | "
+                    f"Оценка: {pair['score']:.2f} | "
+                    f"Волатильность: {pair['volatility']:.2f}% | "
+                    f"Объем: {pair['avg_daily_volume']:.0f}"
+                )
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка при анализе пар: {str(e)}", exc_info=True)
+
+    def _save_pairs_state(self):
+        """Сохранение информации о торгуемых парах"""
+        try:
+            pairs_state = {
+                'last_update': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'pairs': self.selected_pairs
+            }
+            
+            with open('pairs_state.json', 'w', encoding='utf-8') as f:
+                json.dump(pairs_state, f, indent=4, ensure_ascii=False)
+            
+            self.logger.info(f"Обновлен список торгуемых пар: {len(self.selected_pairs)} пар")
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения состояния пар: {str(e)}")
+
 
 if __name__ == "__main__":
     bot = TradingBot()
-    bot.run_auto_trading()  # Запускаем автоматическую торговлю вместо однократного анализа
+    bot.run_auto_trading()  # Запускаем автоматическую торговлю вместо одократного анализа
 

@@ -40,3 +40,12 @@ class Hub:
             self.risk_agent.add_trade_result(trade_result)
         else:
             print("Hold")
+
+# Hub координирует работу стратегии с другими компонентами
+class TradingHub:
+    def __init__(self):
+        self.strategies = {
+            'goat': GOATStrategy(config),
+            'macd': MACDStrategy(config),
+            'rsi_bb': RSIBBStrategy(config)
+        }
