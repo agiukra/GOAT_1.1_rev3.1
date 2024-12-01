@@ -1,0 +1,13 @@
+[
+    {
+        "timestamp": "2024-11-18 20:58:06",
+        "signal": "SELL",
+        "entry_price": 90591.74,
+        "stop_loss": 89685.8226,
+        "take_profit": 93309.49220000001,
+        "position_size": 0.11038533976717896,
+        "risk_amount": 100.0,
+        "potential_profit": 299.9999999999984,
+        "potential_loss": 100.0
+    }
+]
