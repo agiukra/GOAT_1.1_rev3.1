@@ -5,11 +5,14 @@ API_SECRET = 'OcybRBPZ89EA1dx8ZrLs8hGgfJ5axeBg0tNT4fwQb71IhKv1C8dJo8YtldIgSetC'
 # Основные торговые параметры
 TRADING_PARAMS = {
     'symbol': 'BTCUSDT',
-    'interval': '1h',
+    'interval': '1m',
     'limit': 100,
-    'interval_seconds': 300,
+    'interval_seconds': 60,
     'risk_percentage': 1,
-    'account_balance': None
+    'account_balance': None,
+    'min_volume': 1000000,
+    'min_volatility': 0.5,
+    'max_volatility': 20
 }
 
 # Параметры индикаторов

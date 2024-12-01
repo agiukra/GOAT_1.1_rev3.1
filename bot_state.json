@@ -1,22 +1,22 @@
 {
-    "status": "active",
-    "last_update": "2024-12-01 15:10:54",
+    "status": "stopped",
+    "last_update": "2024-12-01 23:23:51",
     "balance": 685.10898945,
-    "current_price": 97193.62,
+    "current_price": 97480.0,
     "last_signal": "HOLD",
     "technical_indicators": {
-        "rsi": 58.06119529722695,
-        "sma20": 96643.902,
-        "sma50": 96829.90580000001,
-        "bb_high": 97405.57321756307,
-        "bb_low": 95882.23078243693,
-        "bb_mid": 96643.902,
-        "price_change_24h": 0.56723852689951,
-        "volume_24h": 13720.00467,
-        "volatility": 1.30093067223276,
-        "trend": "down",
-        "trend_strength": 0.19209333982436433,
-        "market_momentum": 678.0999999999913
+        "rsi": 43.38871740306737,
+        "sma20": 97568.6105,
+        "sma50": 97556.86480000001,
+        "bb_high": 97766.8645196289,
+        "bb_low": 97370.35648037109,
+        "bb_mid": 97568.6105,
+        "price_change_24h": -0.29914348086495907,
+        "volume_24h": 384.7653,
+        "volatility": 0.28561196744697254,
+        "trend": "up",
+        "trend_strength": 0.012039849808688127,
+        "market_momentum": -3.3300000000017462
     },
     "risk_metrics": {
         "max_position_size": 68.510898945,
@@ -25,19 +25,19 @@
         "available_risk": 13.702179788999999
     },
     "market_conditions": {
-        "volatility_level": "Medium",
-        "volume_analysis": "Low",
-        "market_phase": "Uptrend",
+        "volatility_level": "Low",
+        "volume_analysis": "High",
+        "market_phase": "Downtrend",
         "trend_reliability": "Low"
     },
     "open_positions": [
         {
             "asset": "BTC",
             "amount": 9.06e-06,
-            "current_price": 97193.62,
+            "current_price": 97478.73,
             "entry_price": 90348.93,
-            "value_usdt": 0.8805741972,
-            "pnl": 7.575839581055363,
+            "value_usdt": 0.8831572938,
+            "pnl": 7.891405022726891,
             "free": 9.06e-06,
             "locked": 0.0
         }
