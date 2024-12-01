@@ -1,22 +1,22 @@
 {
     "status": "active",
-    "last_update": "2024-12-01 15:10:54",
+    "last_update": "2024-12-01 15:31:00",
     "balance": 685.10898945,
-    "current_price": 97193.62,
+    "current_price": 97031.75,
     "last_signal": "HOLD",
     "technical_indicators": {
-        "rsi": 58.06119529722695,
-        "sma20": 96643.902,
-        "sma50": 96829.90580000001,
-        "bb_high": 97405.57321756307,
-        "bb_low": 95882.23078243693,
-        "bb_mid": 96643.902,
-        "price_change_24h": 0.56723852689951,
-        "volume_24h": 13720.00467,
-        "volatility": 1.30093067223276,
+        "rsi": 55.66530174595978,
+        "sma20": 96635.80850000001,
+        "sma50": 96826.6684,
+        "bb_high": 97377.11023547013,
+        "bb_low": 95894.5067645299,
+        "bb_mid": 96635.80850000001,
+        "price_change_24h": 0.3997499726060415,
+        "volume_24h": 13999.6344,
+        "volatility": 1.2990632001580895,
         "trend": "down",
-        "trend_strength": 0.19209333982436433,
-        "market_momentum": 678.0999999999913
+        "trend_strength": 0.19711501299571854,
+        "market_momentum": 516.2299999999959
     },
     "risk_metrics": {
         "max_position_size": 68.510898945,
@@ -26,7 +26,7 @@
     },
     "market_conditions": {
         "volatility_level": "Medium",
-        "volume_analysis": "Low",
+        "volume_analysis": "Normal",
         "market_phase": "Uptrend",
         "trend_reliability": "Low"
     },
@@ -34,10 +34,10 @@
         {
             "asset": "BTC",
             "amount": 9.06e-06,
-            "current_price": 97193.62,
+            "current_price": 97031.75,
             "entry_price": 90348.93,
-            "value_usdt": 0.8805741972,
-            "pnl": 7.575839581055363,
+            "value_usdt": 0.879107655,
+            "pnl": 7.396678632497372,
             "free": 9.06e-06,
             "locked": 0.0
         }
