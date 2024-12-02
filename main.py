@@ -252,7 +252,7 @@ class TradingBot:
             risk_amount = self.balance * (risk_percentage / 100)
 
             if signal == 'SELL':
-                stop_loss = entry_price * 1.01  # +1% от цены входа
+                stop_loss = entry_price * 1.01  # +1% от цены вода
                 take_profit = entry_price * 0.97  # -3% от цены входа
             elif signal == 'BUY':
                 stop_loss = entry_price * 0.99  # -1% от цены входа
@@ -412,7 +412,7 @@ class TradingBot:
             if available_balance < metrics['risk_amount']:
                 self.logger.warning(
                     f"Недостаточ средст. Доступно: {available_balance} USDT, "
-                    f"Требуется: {metrics['risk_amount']} USDT"
+                    f"Тебуется: {metrics['risk_amount']} USDT"
                 )
                 return False
 
@@ -760,7 +760,7 @@ class TradingBot:
             signal = self.generate_signal()
             print(f"Сгенерирован сигнал: {signal}")
 
-            # Если есть сигнал, рассчитываем метрики и добавляем в очередь
+            # Если есть сигнал, рассчитываем метрики и добавляем в очереь
             if signal != 'HOLD':
                 metrics = self.calculate_position_metrics(signal)
                 self.signal_queue.put((signal, metrics))
@@ -1069,19 +1069,20 @@ class TradingBot:
 
     def initialize(self):
         """Инициализация бота"""
-        self.logger.info("Инициализация ота...")
+        self.logger.info("Инициализация бота...")
         
-        # Инициализируем стратегию
+        # Инициализируем стратегию с передачей баланса
         self.strategy = GOATStrategy(
             risk_reward_ratio=2.0,
-            max_loss=0.02
+            max_loss=0.02,
+            balance=self.balance
         )
         
         try:
             # Получаем список активов для торговли
             symbols = self.strategy.analyze_market(self.client)
             if not symbols:
-                raise ValueError("Не удалось поучить список активов для торговли")
+                raise ValueError("Не удалось получить список активов для торговли")
             
             self.logger.info(f"Выбраны активы для торговли: {symbols}")
             
@@ -1157,12 +1158,20 @@ class TradingBot:
             self.logger.info(f"Стоп-лосс: {signal['stop_loss']:.8f} ({signal['stop_loss_percent']:.2f}%)")
             self.logger.info(f"Тейк-профит: {signal['take_profit']:.8f} ({signal['take_profit_percent']:.2f}%)")
             
-            # Добавляем расчет потенциальной прибыли/убытка
-            position_size = self.calculate_position_size(signal['entry_price'], signal['stop_loss'])
+            # Используем метод стратегии для расчета размера позиции
+            position_size = self.strategy.calculate_position_size(
+                signal['entry_price'], 
+                signal['stop_loss'],
+                self.balance
+            )
+            position_value = position_size * signal['entry_price']
+            
+            self.logger.info(f"Размер позиции: {position_size:.8f}")
+            self.logger.info(f"Стоимость позиции: {position_value:.2f} USDT ({(position_value/self.balance*100):.2f}% от баланса)")
+            
             potential_loss = abs(signal['entry_price'] - signal['stop_loss']) * position_size
             potential_profit = abs(signal['take_profit'] - signal['entry_price']) * position_size
             
-            self.logger.info(f"Размер позиции: {position_size:.8f}")
             self.logger.info(f"Потенциальный убыток: {potential_loss:.2f} USDT")
             self.logger.info(f"Потенциальная прибыль: {potential_profit:.2f} USDT")
             self.logger.info(f"Соотношение риск/прибыль: 1:{potential_profit/potential_loss:.2f}")

@@ -6,9 +6,10 @@ import config
 
 
 class GOATStrategy:
-    def __init__(self, risk_reward_ratio: float, max_loss: float):
+    def __init__(self, risk_reward_ratio: float, max_loss: float, balance: float = None):
         self.risk_reward_ratio = risk_reward_ratio
         self.max_loss = max_loss
+        self.balance = balance
         self.symbols = []
         self.positions = {}
         self.asset_metrics = {}
@@ -204,25 +205,40 @@ class GOATStrategy:
     def calculate_take_profit(self, entry_price):
         return entry_price * (1 + self.risk_reward_ratio * self.max_loss)
 
-    def calculate_position_size(self, entry_price, balance, symbol):
-        """
-        Args:
-            entry_price (float): Цена входа
-            balance (float): Баланс счета
-            symbol (str): Торговая пара
-        """
-        # Распределяем риск между всеми активами
-        max_risk_per_trade = (balance * 0.01) / len(self.symbols)
-        
-        stop_loss_price = self.calculate_stop_loss(entry_price)
-        stop_loss_amount = abs(entry_price - stop_loss_price)
-        
-        if stop_loss_amount == 0:
-            return 0
+    def calculate_position_size(self, entry_price, stop_loss, balance):
+        """Расчет размера позиции с учетом ограничений"""
+        try:
+            if balance is None:
+                self.logger.error("Баланс не определен")
+                return 0
             
-        position_size = max_risk_per_trade / stop_loss_amount
-        
-        return position_size
+            # Рассчитываем размер позиции исходя из риска
+            risk_amount = balance * (config.POSITION_SIZING['risk_per_trade'] / 100)
+            position_size = risk_amount / abs(entry_price - stop_loss)
+            
+            # Рассчитываем стоимость позиции в USDT
+            position_value = position_size * entry_price
+            
+            # Проверяем минимальный размер позиции
+            if position_value < config.POSITION_SIZING['min_position_size']:
+                self.logger.warning(f"Размер позиции меньше минимального: {position_value:.2f} USDT")
+                return 0
+            
+            # Проверяем максимальный размер позиции
+            max_position_value = min(
+                balance * (config.POSITION_SIZING['max_position_percent'] / 100),
+                config.POSITION_SIZING['max_position_size']
+            )
+            
+            if position_value > max_position_value:
+                position_size = max_position_value / entry_price
+                self.logger.info(f"Размер позиции ограничен до {position_size:.8f} ({max_position_value:.2f} USDT)")
+            
+            return position_size
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка расчета размера позиции: {str(e)}")
+            return 0
 
     async def initialize(self, exchange):
         """Инициализация стратегии и первичный анализ рынка"""
@@ -293,45 +309,26 @@ class GOATStrategy:
             last_candle = df.iloc[-1]
             prev_candle = df.iloc[-2]
             
-            # Проверяем условия
-            price_trend = float(last_candle['close']) > float(prev_candle['close'])
-            volume_increase = float(last_candle['volume']) > float(prev_candle['volume'])
+            # Проверяем тренд по нескольким свечам
+            last_3_closes = df['close'].tail(3)
+            price_trend = (last_3_closes.iloc[-1] > last_3_closes.iloc[-2]) and (last_3_closes.mean() > df['close'].tail(6).mean())
+            
+            # Проверяем объем
+            avg_volume = df['volume'].rolling(window=5).mean()
+            volume_ok = float(last_candle['volume']) > float(avg_volume.iloc[-1] * 0.5)
+            
+            # Проверяем SMA и RSI
             above_sma = float(last_candle['close']) > float(last_candle['sma_20'])
-            rsi_condition = 30 < float(last_candle['rsi']) < 70
+            rsi_condition = config.RSI_SETTINGS['oversold'] < float(last_candle['rsi']) < config.RSI_SETTINGS['overbought']
             
-            # Логируем все условия с конкретными значениями
-            self.logger.info(f"\nАнализ условий для сигнала:")
-            self.logger.info(f"1. Тренд растущий: {price_trend}")
-            self.logger.info(f"   - Текущая цена: {last_candle['close']:.8f}")
-            self.logger.info(f"   - Предыдущая цена: {prev_candle['close']:.8f}")
-            self.logger.info(f"   - Изменение: {((last_candle['close'] - prev_candle['close'])/prev_candle['close']*100):.2f}%")
+            # Логируем условия...
             
-            self.logger.info(f"2. Объем растет: {volume_increase}")
-            self.logger.info(f"   - Текущий объем: {last_candle['volume']:.2f}")
-            self.logger.info(f"   - Предыдущий объем: {prev_candle['volume']:.2f}")
-            self.logger.info(f"   - Изменение: {((last_candle['volume'] - prev_candle['volume'])/prev_candle['volume']*100):.2f}%")
-            
-            self.logger.info(f"3. Цена выше SMA20: {above_sma}")
-            self.logger.info(f"   - Цена: {last_candle['close']:.8f}")
-            self.logger.info(f"   - SMA20: {last_candle['sma_20']:.8f}")
-            self.logger.info(f"   - Разница: {((last_candle['close'] - last_candle['sma_20'])/last_candle['sma_20']*100):.2f}%")
-            
-            self.logger.info(f"4. RSI в зоне 30-70: {rsi_condition}")
-            self.logger.info(f"   - RSI: {last_candle['rsi']:.2f}")
-            
-            # Сигнал генерируется только если все условия выполнены
-            signal = price_trend and volume_increase and above_sma and rsi_condition
-            self.logger.info(f"\nИтоговый сигнал: {'ЕСТЬ' if signal else 'НЕТ'}")
-            if not signal:
-                self.logger.info("Причины отсутствия сигнала:")
-                if not price_trend:
-                    self.logger.info("- Цена не растет")
-                if not volume_increase:
-                    self.logger.info("- Объем не растет")
-                if not above_sma:
-                    self.logger.info("- Цена ниже SMA20")
-                if not rsi_condition:
-                    self.logger.info("- RSI вне диапазона 30-70")
+            # Сигнал генерируется если:
+            # 1. Есть растущий тренд
+            # 2. Объем выше 50% от среднего
+            # 3. Цена выше SMA20
+            # 4. RSI в допустимом диапазоне
+            signal = price_trend and volume_ok and above_sma and rsi_condition
             
             return signal
             

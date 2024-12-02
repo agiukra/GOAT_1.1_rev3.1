@@ -212,3 +212,18 @@ ASSET_SELECTION = {
 # Добавьте эти параметры в конфигурацию
 STOP_LOSS_PERCENT = 2.0  # Стоп-лосс 2%
 TAKE_PROFIT_PERCENT = 4.0  # Тейк-профит 4%
+
+# Добавить настройки RSI в конфигурацию
+RSI_SETTINGS = {
+    'period': 14,
+    'oversold': 30,
+    'overbought': 75  # Увеличить с 70 до 75
+}
+
+# Добавляем параметры размера позиции
+POSITION_SIZING = {
+    'max_position_percent': 5.0,   # Уменьшаем с 10% до 5%
+    'risk_per_trade': 1.0,        # Оставляем риск 1%
+    'min_position_size': 10.0,    # Минимум 10 USDT
+    'max_position_size': 50.0     # Уменьшаем максимум до 50 USDT
+}
