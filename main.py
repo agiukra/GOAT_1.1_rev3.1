@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from queue import Queue
 from strategies.strategy_manager import StrategyManager
+from strategies.goat_strategy import GOATStrategy
 
 warnings.filterwarnings('ignore')
 
@@ -63,6 +64,7 @@ class TradingBot:
         """Инициализация торгового бота"""
         self.logger = setup_logging()
         self.data = None
+        self.market_data = {}  # Словарь для хранения данных по каждому символу
         self.indicators = None
         self.trades = []
         self.last_signal = 'HOLD'
@@ -159,32 +161,38 @@ class TradingBot:
             return self.generate_test_data()
 
         try:
-            print(f"Получение данных для {config.TRADING_PARAMS['symbol']}")
-            klines = self.client.get_klines(
-                symbol=config.TRADING_PARAMS['symbol'],
-                interval=config.TRADING_PARAMS['interval'],
-                limit=config.TRADING_PARAMS['limit']
-            )
+            success = True
+            for symbol in config.TRADING_PARAMS['symbols']:
+                try:
+                    print(f"Получение данных для {symbol}")
+                    klines = self.client.get_klines(
+                        symbol=symbol,
+                        interval=config.TRADING_PARAMS['interval'],
+                        limit=config.TRADING_PARAMS['limit']
+                    )
 
-            df = pd.DataFrame(klines, columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_volume', 'trades_count', 'taker_buy_base',
-                'taker_buy_quote', 'ignore'
-            ])
+                    df = pd.DataFrame(klines, columns=[
+                        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                        'close_time', 'quote_volume', 'trades_count', 'taker_buy_base',
+                        'taker_buy_quote', 'ignore'
+                    ])
 
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            for col in ['open', 'high', 'low', 'close', 'volume']:
-                df[col] = df[col].astype(float)
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    for col in ['open', 'high', 'low', 'close', 'volume']:
+                        df[col] = df[col].astype(float)
 
-            df.set_index('timestamp', inplace=True)
-            self.data = df
-            print("Данные получены успешно")
-            return True
+                    df.set_index('timestamp', inplace=True)
+                    self.market_data[symbol] = df
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка получения данных для {symbol}: {str(e)}")
+                    success = False
+
+            return success
 
         except Exception as e:
-            print(f"Ошибка при получении данных: {e}")
-            self.data = self.generate_test_data()
-            return True
+            self.logger.error(f"Общая ошибка при получении данных: {str(e)}")
+            return False
 
     def load_data(self, data):
         self.data = data
@@ -211,17 +219,26 @@ class TradingBot:
             self.logger.error(f"Ошибка при генерации сигнала: {str(e)}")
             return 'HOLD'
 
-    def calculate_position_metrics(self, signal):
+    def calculate_position_metrics(self, signal, symbol):
         """Расчет параметров позиции"""
         try:
-            entry_price = self.data['close'].iloc[-1]
+            if symbol not in self.market_data:
+                self.logger.error(f"Нет данных для символа {symbol}")
+                return None
             
-            # Используем текущий баланс вместо значения из конфиа
+            market_data = self.market_data[symbol]
+            if not market_data:
+                self.logger.error(f"Пустые данные для символа {symbol}")
+                return None
+            
+            entry_price = market_data[-1]['close']
+            
+            # Используем текущий баланс
             if self.balance is None:
                 self.logger.error("Баланс не определен")
                 return None
             
-            # Рассчитываем риск от текущего баланса
+            # Расчитываем риск от текущего баланса
             risk_percentage = config.TRADING_PARAMS.get('risk_percentage', 1)  # 1% по умолчанию
             risk_amount = self.balance * (risk_percentage / 100)
 
@@ -251,6 +268,7 @@ class TradingBot:
                 return None
 
             return {
+                'symbol': symbol,
                 'entry_price': entry_price,
                 'stop_loss': stop_loss,
                 'take_profit': take_profit,
@@ -482,55 +500,18 @@ class TradingBot:
             json.dump(state, f, indent=4)
 
     def update_bot_state(self):
-        """Обновление состояния боа"""
+        """Обновление состояния бота"""
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            if self.data is None or self.data.empty:
+            if not self.market_data:
                 raise ValueError("Отсутствуют рыночные данные")
 
-            last_row = self.data.iloc[-1]
-
-            # Расчет всех метрик
-            volatility = self._calculate_volatility()
-            market_strength = self._calculate_market_strength(last_row)
-            risk_metrics = self._calculate_risk_metrics(self.balance)
-            price_change = self._calculate_price_change_24h()
-
-            # Обновленный формат технических индикаторов
-            technical_indicators = {
-                'rsi': float(last_row['rsi']),
-                'sma20': float(last_row['sma20']),
-                'sma50': float(last_row['sma50']),
-                'bb_high': float(last_row['bb_high']),
-                'bb_low': float(last_row['bb_low']),
-                'bb_mid': float(last_row['bb_mid']),
-                'price_change_24h': price_change,
-                'volume_24h': float(self.data['volume'].iloc[-24:].sum()),
-                'volatility': volatility,
-                'trend': 'up' if float(last_row['sma20']) > float(last_row['sma50']) else 'down',
-                'trend_strength': market_strength['trend_strength'],
-                'market_momentum': market_strength['momentum']
-            }
-
-            # Обновленный формат рыночных условий
-            market_conditions = {
-                'volatility_level': 'High' if volatility > 2 else 'Medium' if volatility > 1 else 'Low',
-                'volume_analysis': self._analyze_volume().title(),
-                'market_phase': self._determine_market_phase().title(),
-                'trend_reliability': market_strength['reliability'].title()
-            }
-
-            # Обновленный формат состояния бота
             state = {
                 'status': 'active',
                 'last_update': current_time,
                 'balance': float(self.balance) if self.balance is not None else 0,
-                'current_price': float(last_row['close']),
-                'last_signal': self.last_signal,
-                'technical_indicators': technical_indicators,
-                'risk_metrics': risk_metrics,
-                'market_conditions': market_conditions,
+                'symbols': {},
                 'open_positions': self._get_open_positions() or [],
                 'trading_stats': self._get_trading_statistics() or {
                     'total_trades': 0,
@@ -540,6 +521,23 @@ class TradingBot:
                     'total_profit': 0
                 }
             }
+
+            # Добавляем информацию по каждому символу
+            for symbol, data in self.market_data.items():
+                if not data:
+                    continue
+                    
+                last_candle = data[-1]
+                state['symbols'][symbol] = {
+                    'current_price': float(last_candle['close']),
+                    'volume_24h': sum(d['volume'] for d in data[-24:]),
+                    'price_change_24h': (
+                        (last_candle['close'] - data[-24]['close']) / data[-24]['close'] * 100
+                        if len(data) >= 24 else None
+                    ),
+                    'high_24h': max(d['high'] for d in data[-24:]),
+                    'low_24h': min(d['low'] for d in data[-24:])
+                }
 
             with open('bot_state.json', 'w', encoding='utf-8') as f:
                 json.dump(state, f, indent=4, ensure_ascii=False)
@@ -671,6 +669,9 @@ class TradingBot:
         cycle_count = 0
 
         try:
+            # Инициализируем бота перед запуском
+            self.initialize()
+            
             # Создаем пул потоков для разных задач
             with ThreadPoolExecutor(max_workers=4) as executor:
                 while True:
@@ -683,36 +684,38 @@ class TradingBot:
                         # Сначала обновляем баланс
                         self._update_balance()
 
-                        # Получаем и анализируем данные
-                        if self._fetch_and_analyze_data():
-                            # Обновляем состояние только после успешного получения данных
-                            self.update_bot_state()
-                        else:
-                            self.logger.error("Не удалось получить или проанализировать данные")
+                        # Получаем и анализируем данные для всех символов
+                        for symbol in config.TRADING_PARAMS['symbols']:
+                            try:
+                                self.update_market_data(symbol)
+                            except Exception as e:
+                                self.logger.error(f"Ошибка обновления данных для {symbol}: {str(e)}")
+                                continue
 
-                        # Ждем указанный интервал
+                        # Проверяем сигналы и выполняем торговлю
+                        self.check_and_execute_signals()
+                        
+                        # Обновляем состояние
+                        self.update_bot_state()
+
+                        # Ждем указанный интрвал
                         interval = config.TRADING_PARAMS.get('interval_seconds', 300)
                         print(f"Ожидание {interval} секунд до следующей проверки...")
                         
-                        # Добавляем обработку прерывания
-                        try:
-                            time.sleep(interval)
-                        except KeyboardInterrupt:
-                            print("\nПолучен сигнал остановки. Завершение работы...")
-                            self._shutdown()
-                            return
+                        time.sleep(interval)
 
+                    except KeyboardInterrupt:
+                        print("\nПолучен сигнал остановки. Завершение работы...")
+                        self._shutdown()
+                        return
                     except Exception as e:
                         self.logger.error(f"Ошибка в цикле торговли: {e}", exc_info=True)
                         time.sleep(60)
 
-        except KeyboardInterrupt:
-            print("\nПолучен сигнал остановки. Завершение работы...")
-            self._shutdown()
         except Exception as e:
             self.logger.error(f"Критическая ошибка: {e}", exc_info=True)
-            self._shutdown()
         finally:
+            self._shutdown()
             print("Бот остановлен")
 
     def _shutdown(self):
@@ -801,7 +804,7 @@ class TradingBot:
 
             # олучение данных
             if not self.fetch_data():
-                print("Не удалось получить данные")
+                print("Не удалось полчить данные")
                 return
 
             # Расчет индикаторов
@@ -900,7 +903,7 @@ class TradingBot:
             return None
 
     def _calculate_resistance_level(self):
-        """Расчет уровня сопротивления"""
+        """Расчет уровня сопротивленя"""
         try:
             if self.data is not None:
                 # Используем максимумы последних 20 свечей
@@ -928,24 +931,31 @@ class TradingBot:
             logging.error(f"Error analyzing volume: {e}")
             return None
 
-    def calculate_indicators(self):
-        """Расчет всех технических индикаторов"""
+    def calculate_indicators(self, symbol):
+        """Расчет всех технических индикаторов для символа"""
         try:
-            if self.data is None or self.data.empty:
-                raise ValueError("Нет данных для расчета индикаторов")
+            if symbol not in self.market_data or not self.market_data[symbol]:
+                raise ValueError(f"Нет данных для расчета индикаторов по {symbol}")
             
-            # Создаем объект TechnicalIndicators если его еще нет
-            if self.indicators is None:
-                self.indicators = TechnicalIndicators(self.data)
+            market_data = self.market_data[symbol]
             
-            # Рассчитываем все индикаторы
-            self.data = self.indicators.calculate_all_indicators()
+            # Преобразуем данные в DataFrame
+            df = pd.DataFrame(market_data)
             
-            self.logger.info("Индикаторы успешно рассчитаны")
+            # Создаем объект индикаторов
+            indicators = TechnicalIndicators(df)
+            
+            # Рассчитываем индикаторы
+            df_with_indicators = indicators.calculate_all_indicators()
+            
+            # Обновляем данные
+            self.market_data[symbol] = df_with_indicators.to_dict('records')
+            
+            self.logger.info(f"Индикаторы успешно рассчитаны для {symbol}")
             return True
-        
+            
         except Exception as e:
-            self.logger.error(f"Ошибка при расчете индикаторов: {str(e)}", exc_info=True)
+            self.logger.error(f"Ошибка при расчете индикаторов для {symbol}: {str(e)}", exc_info=True)
             return False
 
     def _format_trade_info(self, signal, metrics):
@@ -959,7 +969,7 @@ class TradingBot:
             trade_info = (
                 f"\nТОРГОВЫЙ СИГНАЛ | {signal}\n"
                 f"{'='*50}\n"
-                f"\nПАРАМЕТРЫ СДЕЛКИ:\n"
+                f"\nПАРАМЕРЫ СДЕЛКИ:\n"
                 f"- Тип сделки: {'ПОКУПКА' if signal == 'BUY' else 'ПРОДАЖА'}\n"
                 f"- Цена входа: {metrics['entry_price']:.2f} USDT\n"
                 f"- Размер позиции: {metrics['position_size']:.6f} BTC\n"
@@ -991,7 +1001,7 @@ class TradingBot:
             total_profit = sum(t.get('profit', 0) for t in self.trades)
             win_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
             
-            # Получаем последние 5 сделок
+            # Получам последние 5 сделок
             recent_trades = self.trades[-5:] if len(self.trades) >= 5 else self.trades
             
             return {
@@ -1007,64 +1017,132 @@ class TradingBot:
             return None
 
     def _get_open_positions(self):
-        """Получение информации об открытых позициях"""
+        """Получение открытых позиций"""
         try:
+            positions = {}
             if not self.client:
-                return None
-            
-            positions = []
-            
-            # Получаем только ткущую торговую пару
-            symbol = config.TRADING_PARAMS['symbol']
-            base_asset = symbol[:-4]  # Убираем 'USDT' из конца
-            
-            try:
-                # Получаем информацию о балансе только для торгуемой пары
-                account = self.client.get_account()
-                asset_balance = next(
-                    (asset for asset in account['balances'] if asset['asset'] == base_asset),
-                    None
-                )
-                
-                if asset_balance:
-                    free_amount = float(asset_balance['free'])
-                    locked_amount = float(asset_balance['locked'])
-                    total_amount = free_amount + locked_amount
-                    
-                    # Проверяем, есть ли реальная позиция
-                    if total_amount > 0:
-                        # Получаем текущую цену
-                        ticker = self.client.get_symbol_ticker(symbol=symbol)
-                        current_price = float(ticker['price'])
-                        
-                        # Рассчитываем стоимость позиции
-                        value_usdt = total_amount * current_price
-                        
-                        # Получаем историю торгов для определения цены входа
-                        trades = self.client.get_my_trades(symbol=symbol, limit=1)
-                        entry_price = float(trades[0]['price']) if trades else None
-                        
-                        position = {
-                            'asset': base_asset,
-                            'amount': total_amount,
-                            'current_price': current_price,
-                            'entry_price': entry_price,
-                            'value_usdt': value_usdt,
-                            'pnl': ((current_price - entry_price) / entry_price * 100) if entry_price else None,
-                            'free': free_amount,
-                            'locked': locked_amount
-                        }
-                        positions.append(position)
-            
                 return positions
             
-            except Exception as symbol_error:
-                self.logger.debug(f"Ошибка получения позиции для {symbol}: {str(symbol_error)}")
-                return None
+            for symbol in config.TRADING_PARAMS['symbols']:
+                try:
+                    # Получаем информацию о балансе
+                    account = self.client.get_account()
+                    base_asset = symbol[:-4]  # Убираем 'USDT' из конца
+                    
+                    asset_balance = next(
+                        (asset for asset in account['balances'] if asset['asset'] == base_asset),
+                        None
+                    )
+                    
+                    if asset_balance:
+                        free_amount = float(asset_balance['free'])
+                        locked_amount = float(asset_balance['locked'])
+                        total_amount = free_amount + locked_amount
+                        
+                        if total_amount > 0:
+                            # Получаем текущую цену
+                            ticker = self.client.get_symbol_ticker(symbol=symbol)
+                            current_price = float(ticker['price'])
+                            
+                            # Рассчитываем стоимость позиции
+                            value_usdt = total_amount * current_price
+                            
+                            positions[symbol] = {
+                                'symbol': symbol,
+                                'size': total_amount,
+                                'value': value_usdt,
+                                'entry_price': current_price,
+                                'current_price': current_price,
+                                'pnl': 0  # Можно добавить расчет PnL если нужно
+                            }
+                            
+                except Exception as e:
+                    self.logger.error(f"Ошибка получения позиции для {symbol}: {str(e)}")
+                    continue
+                
+            return positions
             
         except Exception as e:
-            self.logger.error(f"Ошибка получения открытых позиций: {str(e)}", exc_info=True)
-            return None
+            self.logger.error(f"Ошибка получения открытых позиций: {str(e)}")
+            return {}
+
+    def initialize(self):
+        """Инициализация бота"""
+        self.logger.info("Инициализация бота...")
+        
+        # Инициализируем стратегию
+        self.strategy = GOATStrategy(
+            risk_reward_ratio=2.0,
+            max_loss=0.02
+        )
+        
+        try:
+            # Получаем список активов для торговли
+            symbols = self.strategy.analyze_market(self.client)
+            if not symbols:
+                raise ValueError("Не удалось получить список активов для торговли")
+            
+            self.logger.info(f"Выбраны активы для торговли: {symbols}")
+            
+            # Обновляем конфигурацию
+            config.TRADING_PARAMS['symbols'] = symbols
+            
+            # Инициализируем начальные данные для каждого символа
+            for symbol in symbols:
+                self.update_market_data(symbol)
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка при инициализации: {str(e)}")
+            raise
+
+    def update_market_data(self, symbol):
+        """Обновление рыночных данных для конкретного символа"""
+        try:
+            klines = self.client.get_klines(
+                symbol=symbol,
+                interval=config.TRADING_PARAMS['interval'],
+                limit=config.TRADING_PARAMS['limit']
+            )
+            
+            # Преобразование данных в нужный формат
+            self.market_data[symbol] = [
+                {
+                    'timestamp': k[0],
+                    'open': float(k[1]),
+                    'high': float(k[2]),
+                    'low': float(k[3]),
+                    'close': float(k[4]),
+                    'volume': float(k[5])
+                }
+                for k in klines
+            ]
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении данных для {symbol}: {str(e)}")
+            raise
+
+    def check_and_execute_signals(self):
+        """Проверка и исполнение торговых сигналов"""
+        for symbol in config.TRADING_PARAMS['symbols']:
+            try:
+                if symbol not in self.market_data:
+                    continue
+                    
+                # Сначала рассчитываем индикаторы
+                if not self.calculate_indicators(symbol):
+                    continue
+                    
+                signal = self.strategy.generate_signal(
+                    self.market_data[symbol],
+                    symbol
+                )
+                
+                if signal['signal'] not in ['hold', 'HOLD']:
+                    metrics = self.calculate_position_metrics(signal['signal'], symbol)
+                    if metrics:
+                        self.execute_trade(signal['signal'], metrics)
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка при обработке сигнала для {symbol}: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Монитор торгового бота</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status-block {
+            background-color: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .trades-table th, .trades-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .trades-table th {
+            background-color: #f5f5f5;
+        }
+        .error {
+            color: red;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-active { background-color: #4CAF50; }
+        .status-inactive { background-color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Монитор торгового бота</h1>
+        
+        {% if monitor is defined %}
+            <div class="status-block">
+                <h2>Общая информация</h2>
+                <p>
+                    <span class="status-indicator {{ 'status-active' if monitor.status == 'Активен' else 'status-inactive' }}"></span>
+                    Статус: {{ monitor.status if monitor.status else 'Нет данных' }}
+                </p>
+                <p>Последнее обновление: {{ monitor.last_update if monitor.last_update else 'Нет данных' }}</p>
+                <p>Баланс: {{ "%.2f"|format(monitor.balance|float) if monitor.balance else '0.00' }} USDT</p>
+                <p>Текущая цена: {{ "%.2f"|format(monitor.current_price|float) if monitor.current_price else '0.00' }} USDT</p>
+                <p>Последний сигнал: {{ monitor.last_signal if monitor.last_signal else 'Нет данных' }}</p>
+                {% if monitor.error_message %}
+                <p class="error">Ошибка: {{ monitor.error_message }}</p>
+                {% endif %}
+                <p>Последнее обновление страницы: <span id="last-refresh"></span></p>
+            </div>
+
+            <div class="status-block">
+                <h2>Торговая статистика</h2>
+                <p>Сделок за сегодня: {{ monitor.trades_today if monitor.trades_today is not none else '0' }}</p>
+                <p>Всего сделок: {{ monitor.total_trades if monitor.total_trades is not none else '0' }}</p>
+                <p>Открытых позиций: {{ monitor.open_positions if monitor.open_positions is not none else '0' }}</p>
+            </div>
+
+            <div class="status-block">
+                <h2>Последние сделки</h2>
+                <table class="trades-table">
+                    <tr>
+                        <th>Время</th>
+                        <th>Пара</th>
+                        <th>Тип</th>
+                        <th>Цена</th>
+                        <th>Объем</th>
+                    </tr>
+                    {% if monitor.recent_trades %}
+                        {% for trade in monitor.recent_trades %}
+                        <tr>
+                            <td>{{ trade.time if trade.time else 'Н/Д' }}</td>
+                            <td>{{ trade.pair if trade.pair else 'Н/Д' }}</td>
+                            <td>{{ trade.type if trade.type else 'Н/Д' }}</td>
+                            <td>{{ trade.price if trade.price else '0.00' }}</td>
+                            <td>{{ trade.volume if trade.volume else '0.00' }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="5" style="text-align: center;">Нет данных о сделках</td>
+                        </tr>
+                    {% endif %}
+                </table>
+            </div>
+        {% else %}
+            <div class="status-block">
+                <h2>Ошибка</h2>
+                <p class="error">Данные мониторинга недоступны</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Скрипт автообновления -->
+    <script>
+        setInterval(function() {
+            location.reload();
+        }, 30000);
+    </script>
+
+    <script>
+        // Добавить перед закрывающим тегом </body>
+        function updateLastRefresh() {
+            const element = document.getElementById('last-refresh');
+            if (element) {
+                element.textContent = new Date().toLocaleTimeString();
+            }
+        }
+        setInterval(updateLastRefresh, 1000);
+    </script>
+</body>
+</html> 

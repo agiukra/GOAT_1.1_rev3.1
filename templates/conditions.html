@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Торговые условия</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .condition-block {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+        .condition-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .condition-value {
+            color: #666;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Текущие торговые условия</h1>
+    
+    {% if conditions %}
+        {% for name, value in conditions.items() %}
+        <div class="condition-block">
+            <span class="condition-name">{{ name }}:</span>
+            <span class="condition-value">{{ value }}</span>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>Нет доступных данных о торговых условиях</p>
+    {% endif %}
+    
+    <p><a href="/">Вернуться на главную</a></p>
+</body>
+</html> 

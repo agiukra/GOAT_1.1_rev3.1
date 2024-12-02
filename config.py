@@ -4,12 +4,16 @@ API_SECRET = 'OcybRBPZ89EA1dx8ZrLs8hGgfJ5axeBg0tNT4fwQb71IhKv1C8dJo8YtldIgSetC'
 
 # Основные торговые параметры
 TRADING_PARAMS = {
-    'symbol': 'BTCUSDT',
+    'symbols': [],  # Будет заполняться динамически
     'interval': '1h',
     'limit': 100,
     'interval_seconds': 300,
     'risk_percentage': 1,
-    'account_balance': None
+    'account_balance': None,
+    'allocation': {},  # Будет заполняться динамически
+    'dynamic_allocation': True,  # Включаем динамическое распределение
+    'min_order_value': 10,  # Минимальная стоимость ордера в USDT
+    'max_order_value': 1000  # Максимальная стоимость ордера в USDT
 }
 
 # Параметры индикаторов
@@ -141,4 +145,60 @@ BACKTEST = {
     'initial_balance': 10000,
     'commission': 0.001,
     'slippage': 0.0005
+}
+
+# Добавить важные параметры безопасности
+SAFETY_SETTINGS = {
+    'max_daily_trades': 5,
+    'max_open_positions': 2,
+    'max_daily_drawdown': 0.05,  # 5% максимальная просадка в день
+    'emergency_stop_loss': 0.15,  # 15% аварийный стоп
+}
+
+# Параметры для реальной торговли
+PRODUCTION_SETTINGS = {
+    'paper_trading': False,
+    'use_real_money': True,
+    'enable_emergency_stop': True,
+    'enable_notifications': True,
+}
+
+# Добавляем специфичные параметры для каждой пары
+SYMBOL_SPECIFIC_PARAMS = {
+    'BTCUSDT': {
+        'min_order_size': 0.001,
+        'price_precision': 2,
+        'quantity_precision': 5
+    },
+    'ETHUSDT': {
+        'min_order_size': 0.01,
+        'price_precision': 2,
+        'quantity_precision': 4
+    },
+    'BNBUSDT': {
+        'min_order_size': 0.1,
+        'price_precision': 2,
+        'quantity_precision': 3
+    }
+}
+
+# Параметры отбора активов
+ASSET_SELECTION = {
+    'max_assets': 100,  # Сколько топовых активов анализировать
+    'min_volume_24h': 1000000,  # Минимальный 24ч объем в USDT
+    'min_market_cap': 10000000,  # Минимальная капитализация
+    'blacklist': [
+        'USDT', 'BUSD', 'USDC', 'DAI', 'PAX', 'TUSD', 'USDN',
+        'USDP', 'USDD', 'FDUSDT', 'FDUSD'  # Добавляем новые стейблкоины
+    ],
+    'selection_criteria': {
+        'volatility_weight': 0.3,  # Вес волатильности в общей оценке
+        'volume_weight': 0.3,     # Вес объема в общей оценке
+        'trend_weight': 0.4,      # Вес тренда в общей оценке
+        'max_selected_assets': 5   # Максимальное количество выбираемых активов
+    },
+    'update_interval': 24,  # Часы между обновлением списка активов
+    'min_price': 0.1,      # Минимальная цена актива
+    'max_spread': 0.02,    # Максимальный спред (2%)
+    'quote_currency': 'USDT'  # Котируемая валюта для всех пар
 }

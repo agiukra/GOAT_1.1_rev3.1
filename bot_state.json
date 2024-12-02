@@ -1,47 +1,45 @@
 {
     "status": "active",
-    "last_update": "2024-12-01 15:10:54",
-    "balance": 685.10898945,
-    "current_price": 97193.62,
-    "last_signal": "HOLD",
-    "technical_indicators": {
-        "rsi": 58.06119529722695,
-        "sma20": 96643.902,
-        "sma50": 96829.90580000001,
-        "bb_high": 97405.57321756307,
-        "bb_low": 95882.23078243693,
-        "bb_mid": 96643.902,
-        "price_change_24h": 0.56723852689951,
-        "volume_24h": 13720.00467,
-        "volatility": 1.30093067223276,
-        "trend": "down",
-        "trend_strength": 0.19209333982436433,
-        "market_momentum": 678.0999999999913
-    },
-    "risk_metrics": {
-        "max_position_size": 68.510898945,
-        "max_daily_risk": 13.702179788999999,
-        "current_risk_level": 0.0,
-        "available_risk": 13.702179788999999
-    },
-    "market_conditions": {
-        "volatility_level": "Medium",
-        "volume_analysis": "Low",
-        "market_phase": "Uptrend",
-        "trend_reliability": "Low"
-    },
-    "open_positions": [
-        {
-            "asset": "BTC",
-            "amount": 9.06e-06,
-            "current_price": 97193.62,
-            "entry_price": 90348.93,
-            "value_usdt": 0.8805741972,
-            "pnl": 7.575839581055363,
-            "free": 9.06e-06,
-            "locked": 0.0
+    "last_update": "2024-12-02 23:09:18",
+    "balance": 717.35948945,
+    "symbols": {
+        "STGUSDT": {
+            "current_price": 0.3978,
+            "volume_24h": 30196652.500000004,
+            "price_change_24h": -4.878048780487812,
+            "high_24h": 0.4226,
+            "low_24h": 0.0525
+        },
+        "XRPUSDT": {
+            "current_price": 2.693,
+            "volume_24h": 2578587453.93,
+            "price_change_24h": 17.408553864934394,
+            "high_24h": 2.8723,
+            "low_24h": 2.1451
+        },
+        "HBARUSDT": {
+            "current_price": 0.28949,
+            "volume_24h": 3542956840.0,
+            "price_change_24h": 38.75760916454969,
+            "high_24h": 0.30464,
+            "low_24h": 0.20732
+        },
+        "MTLUSDT": {
+            "current_price": 1.583,
+            "volume_24h": 2972390.4000000004,
+            "price_change_24h": 0.7638446849140681,
+            "high_24h": 1.586,
+            "low_24h": 1.419
+        },
+        "TRXUSDT": {
+            "current_price": 0.2167,
+            "volume_24h": 1364364280.0,
+            "price_change_24h": 4.584942084942089,
+            "high_24h": 0.2178,
+            "low_24h": 0.2033
         }
-    ],
+    },
+    "open_positions": [],
     "trading_stats": {
         "total_trades": 0,
         "successful_trades": 0,
