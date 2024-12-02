@@ -1,50 +1,38 @@
 {
-    "status": "active",
-    "last_update": "2024-12-02 23:09:18",
-    "balance": 717.35948945,
-    "symbols": {
-        "STGUSDT": {
-            "current_price": 0.3978,
-            "volume_24h": 30196652.500000004,
-            "price_change_24h": -4.878048780487812,
-            "high_24h": 0.4226,
-            "low_24h": 0.0525
-        },
-        "XRPUSDT": {
-            "current_price": 2.693,
-            "volume_24h": 2578587453.93,
-            "price_change_24h": 17.408553864934394,
-            "high_24h": 2.8723,
-            "low_24h": 2.1451
-        },
-        "HBARUSDT": {
-            "current_price": 0.28949,
-            "volume_24h": 3542956840.0,
-            "price_change_24h": 38.75760916454969,
-            "high_24h": 0.30464,
-            "low_24h": 0.20732
-        },
-        "MTLUSDT": {
-            "current_price": 1.583,
-            "volume_24h": 2972390.4000000004,
-            "price_change_24h": 0.7638446849140681,
-            "high_24h": 1.586,
-            "low_24h": 1.419
-        },
-        "TRXUSDT": {
-            "current_price": 0.2167,
-            "volume_24h": 1364364280.0,
-            "price_change_24h": 4.584942084942089,
-            "high_24h": 0.2178,
-            "low_24h": 0.2033
-        }
+    "status": "initializing",
+    "last_update": "2024-12-02 23:36:31",
+    "balance": null,
+    "current_price": null,
+    "last_signal": "HOLD",
+    "technical_indicators": {
+        "rsi": null,
+        "sma20": null,
+        "sma50": null,
+        "bb_high": null,
+        "bb_low": null,
+        "bb_mid": null,
+        "price_change_24h": null,
+        "volume_24h": null,
+        "volatility_24h": null,
+        "highest_24h": null,
+        "lowest_24h": null,
+        "trend": null,
+        "trend_strength": null,
+        "rsi_signal": null,
+        "bb_position": null
     },
-    "open_positions": [],
-    "trading_stats": {
+    "trading_statistics": {
         "total_trades": 0,
         "successful_trades": 0,
         "failed_trades": 0,
         "win_rate": 0,
-        "total_profit": 0
+        "total_profit": 0,
+        "last_trades": []
+    },
+    "open_positions": [],
+    "risk_metrics": {
+        "max_position_size": null,
+        "max_daily_risk": null,
+        "current_risk_level": null
     }
 }

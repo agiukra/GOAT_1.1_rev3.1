@@ -20,42 +20,51 @@ import threading
 from queue import Queue
 from strategies.strategy_manager import StrategyManager
 from strategies.goat_strategy import GOATStrategy
+import sys
 
 warnings.filterwarnings('ignore')
 
 # В начале файла, после импортов
 def setup_logging():
     """Настройка системы логирования"""
+    # Удаляем все существующие обработчики
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
     logger = logging.getLogger('TradingBot')
-    logger.propagate = False
     logger.setLevel(logging.INFO)
+    logger.propagate = False  # Отключаем propagation
     
     # Очищаем существующие обработчики
     logger.handlers.clear()
     
     # Форматтер для логов
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-    )
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     
-    # Хендлер для файла
+    # Консольный вывод
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
+    
+    # Файловый вывод
     file_handler = logging.handlers.RotatingFileHandler(
         'trading_bot.log',
-        maxBytes=10*1024*1024,  # 10MB
+        maxBytes=10*1024*1024,
         backupCount=5,
         encoding='utf-8'
     )
     file_handler.setFormatter(formatter)
-    
-    # Хендлер для консоли с другим форматтером
-    console_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    )
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(console_formatter)
-    
+    file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    
+    # Настраиваем корневой логгер для стратегии
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Добавляем те же обработчики к корневому логгеру
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
     
     return logger
 
@@ -207,7 +216,7 @@ class TradingBot:
         # Остальная логика анализа...
 
     def generate_signal(self):
-        """Генерация торгового сигнала с автоматическим выбором стратегии"""
+        """Генерация торгового сигнала с автоматическим вбром стратегии"""
         try:
             # Выбираем подходящую стратегию
             strategy = self.strategy_manager.select_strategy(self.data)
@@ -235,7 +244,7 @@ class TradingBot:
             
             # Используем текущий баланс
             if self.balance is None:
-                self.logger.error("Баланс не определен")
+                self.logger.error("Балас не определен")
                 return None
             
             # Расчитываем риск от текущего баланса
@@ -309,7 +318,7 @@ class TradingBot:
             trend_direction = "Восходящий" if last_row['trend_direction'] == 1 else "Нисходящий" if last_row['trend_direction'] == -1 else "Боковой"
             trend_strength = float(last_row['trend_strength'])
             
-            # Анализ волатильности
+            # Анализ влатильности
             volatility = self._calculate_volatility()
             bb_position = float(last_row['bb_pct']) * 100
             
@@ -352,7 +361,7 @@ class TradingBot:
                         f"- {pos['asset']:<8} | "
                         f"Количество: {pos['amount']:<12.8f} | "
                         f"Цена: {pos['current_price']:<10.2f} USDT | "
-                        f"Стоимость: {pos['value_usdt']:<10.2f} USDT "
+                        f"Стомость: {pos['value_usdt']:<10.2f} USDT "
                         f"({pos['value_usdt']/total_value*100:>5.1f}%)\n"
                     )
 
@@ -360,12 +369,12 @@ class TradingBot:
             stats = self._get_trading_statistics()
             if stats:
                 market_info += (
-                    f"\nСТАТИСТИКА ТОРГОВЛИ:\n"
+                    f"\nСТАТИСТИКА ТРГВЛИ:\n"
                     f"{'='*50}\n"
                     f"- Всего сделок: {stats['total_trades']}\n"
-                    f"- Успешных сделок: {stats['successful_trades']}\n"
+                    f"- Успешнх сделок: {stats['successful_trades']}\n"
                     f"- еудачных сделок: {stats['failed_trades']}\n"
-                    f"- Процент успешных: {stats['win_rate']:.2f}%\n"
+                    f"- Процент успешых: {stats['win_rate']:.2f}%\n"
                     f"- Общая прибыль: {stats['total_profit']:.2f} USDT\n"
                     f"\nПОСЛЕДНИЕ СДЕЛКИ:\n"
                 )
@@ -395,7 +404,7 @@ class TradingBot:
             return False
 
         try:
-            # Получаем актуальный баланс
+            # Получаем актуальнй баланс
             account = self.client.get_account()
             available_balance = float([asset for asset in account['balances']
                                        if asset['asset'] == 'USDT'][0]['free'])
@@ -562,7 +571,7 @@ class TradingBot:
             return 0.0
 
     def _calculate_market_strength(self, last_row):
-        """Расчет силы рынка"""
+        """Расчет илы рынка"""
         try:
             # Рассчитываем силу тренда
             trend_strength = abs(
@@ -579,7 +588,7 @@ class TradingBot:
                 self.data['volume'].tail(24).mean()
             )
             
-            # Определяем надежность тренда
+            # Определяем наденость тренда
             reliability = 'high' if (
                 trend_strength > 2 and 
                 abs(momentum) > 100 and 
@@ -655,7 +664,7 @@ class TradingBot:
                 'available_risk': None
             }
         except Exception as e:
-            self.logger.error(f"Ошибка расчета метрик риска: {str(e)}", exc_info=True)
+            self.logger.error(f"Ошибка расчета метрк риска: {str(e)}", exc_info=True)
             return {
                 'max_position_size': None,
                 'max_daily_risk': None,
@@ -664,59 +673,51 @@ class TradingBot:
             }
 
     def run_auto_trading(self):
-        """Запуск автоматической торговли с многопоточностью"""
-        print("\nЗапуск автоматической торговли...")
-        cycle_count = 0
-
+        """Запуск автоматической торговли"""
         try:
-            # Инициализируем бота перед запуском
+            print("\nЗапуск автоматической торговли...")
+            
+            # Инициализируем бота и стратегию
             self.initialize()
             
-            # Создаем пул потоков для разных задач
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                while True:
-                    try:
-                        cycle_count += 1
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"\nЦикл #{cycle_count} | Время: {current_time}")
-                        print("Статус: Бот работает...")
+            cycle_count = 0
 
-                        # Сначала обновляем баланс
-                        self._update_balance()
-
-                        # Получаем и анализируем данные для всех символов
-                        for symbol in config.TRADING_PARAMS['symbols']:
-                            try:
-                                self.update_market_data(symbol)
-                            except Exception as e:
-                                self.logger.error(f"Ошибка обновления данных для {symbol}: {str(e)}")
-                                continue
-
-                        # Проверяем сигналы и выполняем торговлю
-                        self.check_and_execute_signals()
-                        
-                        # Обновляем состояние
-                        self.update_bot_state()
-
-                        # Ждем указанный интрвал
-                        interval = config.TRADING_PARAMS.get('interval_seconds', 300)
-                        print(f"Ожидание {interval} секунд до следующей проверки...")
-                        
-                        time.sleep(interval)
-
-                    except KeyboardInterrupt:
-                        print("\nПолучен сигнал остановки. Завершение работы...")
-                        self._shutdown()
-                        return
-                    except Exception as e:
-                        self.logger.error(f"Ошибка в цикле торговли: {e}", exc_info=True)
-                        time.sleep(60)
-
-        except Exception as e:
-            self.logger.error(f"Критическая ошибка: {e}", exc_info=True)
+            while True:
+                try:
+                    cycle_count += 1
+                    self.logger.info(f"\nЦикл #{cycle_count}")
+                    
+                    # Проверяем получение данных
+                    self.logger.info("Получение данных...")
+                    if not self.fetch_data():
+                        self.logger.error("Не удалось получить данные")
+                        continue
+                    
+                    self.logger.info(f"Получены данные для {len(self.market_data)} символов")
+                    
+                    # Анализируем рынок
+                    self.logger.info("Анализ рынка...")
+                    self.logger.info(f"Анализируемые символы: {', '.join(self.market_data.keys())}")
+                    
+                    signals = self.strategy.analyze(self.market_data)
+                    
+                    self.logger.info(f"Найдено сигналов: {len(signals)}")
+                    
+                    if signals:
+                        self.process_signals(signals)
+                    else:
+                        self.logger.info("Нет торговых сигналов")
+                    
+                    time.sleep(config.TRADING_PARAMS.get('interval_seconds', 300))
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка в цикле: {str(e)}", exc_info=True)
+                    time.sleep(60)
+                    
+        except KeyboardInterrupt:
+            self.logger.info("\nОстановка бота...")
         finally:
             self._shutdown()
-            print("Бот остановлен")
 
     def _shutdown(self):
         """Корректное завершение работы бота"""
@@ -736,7 +737,7 @@ class TradingBot:
             self.logger.info("Бот корректно остановлен")
             
         except Exception as e:
-            self.logger.error(f"Ошибка при остановке бота: {e}", exc_info=True)
+            self.logger.error(f"Ошибк при остановке бота: {e}", exc_info=True)
 
     def _fetch_and_analyze_data(self):
         """Получение и анализ данных"""
@@ -807,7 +808,7 @@ class TradingBot:
                 print("Не удалось полчить данные")
                 return
 
-            # Расчет индикаторов
+            # Расчет иникаторов
             self.calculate_indicators()
 
             # Генерация сигнала
@@ -980,7 +981,7 @@ class TradingBot:
                 f"- Риск/Прибыль: 1:{risk_reward_ratio:.2f}\n"
                 f"- Риск в USDT: {metrics['risk_amount']:.2f}\n"
                 f"- Потенциальная прибыль: {metrics['potential_profit']:.2f} USDT\n"
-                f"\nБАЛАНС СЧЕТА:\n"
+                f"\nБЛАНС СЧЕТА:\n"
                 f"- Доступный баланс: {self.balance:.2f} USDT\n"
                 f"- Использование баланса: {(metrics['position_size'] * metrics['entry_price'] / self.balance * 100):.2f}%\n"
                 f"{'='*50}"
@@ -1068,7 +1069,7 @@ class TradingBot:
 
     def initialize(self):
         """Инициализация бота"""
-        self.logger.info("Инициализация бота...")
+        self.logger.info("Инициализация ота...")
         
         # Инициализируем стратегию
         self.strategy = GOATStrategy(
@@ -1080,7 +1081,7 @@ class TradingBot:
             # Получаем список активов для торговли
             symbols = self.strategy.analyze_market(self.client)
             if not symbols:
-                raise ValueError("Не удалось получить список активов для торговли")
+                raise ValueError("Не удалось поучить список активов для торговли")
             
             self.logger.info(f"Выбраны активы для торговли: {symbols}")
             
@@ -1143,6 +1144,59 @@ class TradingBot:
                 
             except Exception as e:
                 self.logger.error(f"Ошибка при обработке сигнала для {symbol}: {str(e)}")
+
+    def process_signals(self, signals):
+        """Обработка и вывод торговых сигналов"""
+        self.logger.info("\nОтобранные активы для торговли:")
+        self.logger.info("-" * 50)
+        
+        for signal in signals:
+            self.logger.info(f"\nАктив: {signal['symbol']}")
+            self.logger.info(f"Направление: {'LONG' if signal['direction'] == 'buy' else 'SHORT'}")
+            self.logger.info(f"Точка входа: {signal['entry_price']:.8f}")
+            self.logger.info(f"Стоп-лосс: {signal['stop_loss']:.8f} ({signal['stop_loss_percent']:.2f}%)")
+            self.logger.info(f"Тейк-профит: {signal['take_profit']:.8f} ({signal['take_profit_percent']:.2f}%)")
+            
+            # Добавляем расчет потенциальной прибыли/убытка
+            position_size = self.calculate_position_size(signal['entry_price'], signal['stop_loss'])
+            potential_loss = abs(signal['entry_price'] - signal['stop_loss']) * position_size
+            potential_profit = abs(signal['take_profit'] - signal['entry_price']) * position_size
+            
+            self.logger.info(f"Размер позиции: {position_size:.8f}")
+            self.logger.info(f"Потенциальный убыток: {potential_loss:.2f} USDT")
+            self.logger.info(f"Потенциальная прибыль: {potential_profit:.2f} USDT")
+            self.logger.info(f"Соотношение риск/прибыль: 1:{potential_profit/potential_loss:.2f}")
+            self.logger.info("-" * 30)
+
+    def calculate_position_size(self, entry_price, stop_loss):
+        """Расчет размера позиции"""
+        try:
+            if self.balance is None:
+                self.logger.error("аланс не определен")
+                return 0
+            
+            # Получаем риск на сделку из конфигурации (по умолчанию 1%)
+            risk_per_trade = config.TRADING_PARAMS.get('risk_percentage', 1) / 100
+            
+            # Рассчитываем размер риска в USDT
+            risk_amount = self.balance * risk_per_trade
+            
+            # Рассчитываем размер позиции исходя из риска
+            position_size = risk_amount / abs(entry_price - stop_loss)
+            
+            # Проверяем минимальный размер позиции
+            min_position_value = config.RISK_MANAGEMENT['position_sizing'].get('min_position_value', 50)
+            position_value = position_size * entry_price
+            
+            if position_value < min_position_value:
+                self.logger.warning(f"Размер позиции меньше минимального: {position_value:.2f} USDT (мин: {min_position_value} USDT)")
+                return 0
+            
+            return position_size
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка расчета размера позиции: {str(e)}")
+            return 0
 
 
 if __name__ == "__main__":

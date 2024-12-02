@@ -108,10 +108,10 @@ MARKET_ANALYSIS = {
 
 # Настройки логирования
 LOGGING = {
-    'level': 'INFO',
-    'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    'level': 'DEBUG',
+    'format': '%(asctime)s - %(levelname)s - %(message)s',
     'file': 'trading_bot.log',
-    'max_file_size': 1024 * 1024,  # 1MB
+    'max_file_size': 1024 * 1024,
     'backup_count': 5
 }
 
@@ -187,18 +187,28 @@ ASSET_SELECTION = {
     'max_assets': 100,  # Сколько топовых активов анализировать
     'min_volume_24h': 1000000,  # Минимальный 24ч объем в USDT
     'min_market_cap': 10000000,  # Минимальная капитализация
+    'min_volatility': 0.02,  # Минимальная волатильность (2%)
+    'max_volatility': 0.15,  # Максимальная волатильность (15%)
+    'min_price_usd': 0.1,   # Минимальная цена в USD
+    'max_price_usd': 500,   # Максимальная цена в USD
     'blacklist': [
         'USDT', 'BUSD', 'USDC', 'DAI', 'PAX', 'TUSD', 'USDN',
-        'USDP', 'USDD', 'FDUSDT', 'FDUSD'  # Добавляем новые стейблкоины
+        'USDP', 'USDD', 'FDUSDT', 'FDUSD'  # Стейблкоины
     ],
     'selection_criteria': {
-        'volatility_weight': 0.3,  # Вес волатильности в общей оценке
-        'volume_weight': 0.3,     # Вес объема в общей оценке
-        'trend_weight': 0.4,      # Вес тренда в общей оценке
-        'max_selected_assets': 5   # Максимальное количество выбираемых активов
+        'volatility_weight': 0.3,
+        'volume_weight': 0.3,
+        'trend_weight': 0.4,
+        'max_selected_assets': 5
     },
-    'update_interval': 24,  # Часы между обновлением списка активов
-    'min_price': 0.1,      # Минимальная цена актива
-    'max_spread': 0.02,    # Максимальный спред (2%)
-    'quote_currency': 'USDT'  # Котируемая валюта для всех пар
+    'update_interval': 24,
+    'min_price': 0.1,
+    'max_spread': 0.02,
+    'quote_currency': 'USDT',
+    'min_market_rank': 1,    # Минимальный ранг по капитализации
+    'max_market_rank': 300   # Максимальный ранг по капитализации
 }
+
+# Добавьте эти параметры в конфигурацию
+STOP_LOSS_PERCENT = 2.0  # Стоп-лосс 2%
+TAKE_PROFIT_PERCENT = 4.0  # Тейк-профит 4%
