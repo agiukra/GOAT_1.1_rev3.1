@@ -3,10 +3,11 @@ from typing import Dict, List, Optional
 import pandas as pd
 import logging
 import config
+from binance.client import Client
 
 
-class GOATStrategy:
-    def __init__(self, risk_reward_ratio: float, max_loss: float, balance: float = None):
+class GoatStrategy:
+    def __init__(self, risk_reward_ratio: float = 2.0, max_loss: float = 0.02, balance: float = None):
         self.risk_reward_ratio = risk_reward_ratio
         self.max_loss = max_loss
         self.balance = balance
@@ -14,332 +15,370 @@ class GOATStrategy:
         self.positions = {}
         self.asset_metrics = {}
         self.logger = logging.getLogger('TradingBot')
+        
+        # Добавляем базовые параметры стратегии
+        self.params = {
+            'timeframe': '1m',
+            'rsi_period': 14,
+            'ema_periods': [9, 21],
+            'volume_ma_period': 5,
+            'min_volume_ratio': 0.8,
+            'min_volume': 1000000,  # Минимальный объем в USDT
+            'min_volatility': 0.5,  # Минимальная волатильность в %
+            'max_volatility': 50,   # Максимальная волатильность в %
+        }
+        
+        # Добавляем имя стратегии
+        self.name = 'GOAT (Greatest Of All Time)'
 
-    def analyze_market(self, client) -> List[str]:
-        """Анализирует топ-100 активов и выбирает лучшие для торговли"""
+    def analyze_market(self, client: Client) -> List[str]:
+        """Анализирует рынок и возвращает список подходящих торговых пар"""
         try:
-            # Получаем информацию о рынках
-            markets = client.get_exchange_info()['symbols']
+            self.logger.info("Начало анализа рынка...")
+            
+            # Получаем информацию о всех USDT парах
             tickers = client.get_ticker()
+            usdt_pairs = [t for t in tickers if t['symbol'].endswith('USDT')]
             
-            self.logger.info(f"Получено {len(markets)} торговых пар")
-            
-            assets_data = []
-            for market in markets:
-                symbol = market['symbol']
-                if not self._is_valid_symbol(symbol):
-                    continue
+            suitable_pairs = []
+            for pair in usdt_pairs:
+                try:
+                    symbol = pair['symbol']
                     
-                ticker = next((t for t in tickers if t['symbol'] == symbol), None)
-                if not ticker:
+                    # Получаем статистику за 24 часа
+                    volume_24h = float(pair['quoteVolume'])  # Объем в USDT
+                    price_change = abs(float(pair['priceChangePercent']))  # Волатильность
+                    
+                    # Проверяем соответствие критериям
+                    if (volume_24h >= self.params['min_volume'] and 
+                        self.params['min_volatility'] <= price_change <= self.params['max_volatility']):
+                        
+                        # Рассчитываем метрики для оценки актива
+                        metrics = {
+                            'symbol': symbol,
+                            'volume': volume_24h,
+                            'volatility': price_change,
+                            'trend': self._calculate_trend_score(client, symbol),
+                        }
+                        
+                        # Рассчитываем общий скор
+                        metrics['total_score'] = self._calculate_total_score(metrics)
+                        
+                        self.asset_metrics[symbol] = metrics
+                        suitable_pairs.append(symbol)
+                        
+                        self.logger.info(
+                            f"Актив {symbol}: "
+                            f"Волатильность={price_change:.2f}%, "
+                            f"Объем=${volume_24h/1000000:.1f}M, "
+                            f"Тренд={metrics['trend']:.2f}, "
+                            f"Общий скор={metrics['total_score']:.2f}"
+                        )
+                        
+                except Exception as e:
+                    self.logger.error(f"Ошибка анализа пары {symbol}: {str(e)}")
                     continue
-
-                # Собираем метрики
-                metrics = self._calculate_asset_metrics(ticker, market)
-                if metrics:
-                    assets_data.append(metrics)
-
-            self.logger.info(f"Собраны метрики для {len(assets_data)} активов")
-            return self._select_best_assets(assets_data)
             
-        except Exception as e:
-            self.logger.error(f"Ошибка при анализе рынка: {str(e)}")
-            return []
-
-    def _is_valid_symbol(self, symbol: str) -> bool:
-        """Проверяет, подходит ли символ под критерии"""
-        from config import ASSET_SELECTION
-        
-        try:
-            # Проверяем формат символа
-            if not symbol.endswith(ASSET_SELECTION['quote_currency']):
-                return False
+            # Сортируем пары по общему скору и берем топ-5
+            sorted_pairs = sorted(
+                suitable_pairs,
+                key=lambda x: self.asset_metrics[x]['total_score'],
+                reverse=True
+            )[:5]
             
-            # Получаем базовую валюту
-            base = symbol.replace(ASSET_SELECTION['quote_currency'], '')
-            
-            # Проверяем, не в черном ли списке
-            if base in ASSET_SELECTION['blacklist']:
-                return False
-            
-            # Дополнительные проверки ля стейблкоинов
-            stablecoin_patterns = ['USD', 'PAX', 'DAI', 'TUSD', 'USDC', 'USDT', 'BUSD']
-            if any(pattern in base for pattern in stablecoin_patterns):
-                return False
-            
-            return True
-        
-        except Exception as e:
-            self.logger.error(f"Ошибка проверки символа {symbol}: {str(e)}")
-            return False
-
-    def _calculate_asset_metrics(self, ticker: Dict, market: Dict) -> Optional[Dict]:
-        """Рассчитывает метрики для актива"""
-        try:
-            volume_24h = float(ticker['quoteVolume'])
-            price = float(ticker['lastPrice'])
-            high_24h = float(ticker['highPrice'])
-            low_24h = float(ticker['lowPrice'])
-            
-            # Волатильность
-            volatility = (high_24h - low_24h) / low_24h if low_24h > 0 else 0
-            
-            # Тренд
-            trend_strength = (price - low_24h) / (high_24h - low_24h) if (high_24h - low_24h) > 0 else 0
-            
-            # Объем
-            volume_score = volume_24h / 1000000  # нормализация в миллионах
-            
-            return {
-                'symbol': market['symbol'],
-                'volatility': volatility,
-                'volume_score': volume_score,
-                'trend_strength': trend_strength,
-                'price': price,
-                'volume_24h': volume_24h
-            }
-        except (KeyError, ZeroDivisionError, ValueError) as e:
-            self.logger.debug(f"Ошибка расчета метрик для {market.get('symbol', 'Unknown')}: {str(e)}")
-            return None
-
-    def _select_best_assets(self, assets_data: List[Dict]) -> List[str]:
-        """Выбирает лучшие активы на основе метрик"""
-        from config import ASSET_SELECTION
-        
-        try:
-            if not assets_data:
-                self.logger.warning("Нет данных для выбора активов")
-                return []
-            
-            df = pd.DataFrame(assets_data)
-            
-            # Применяем фильтры
-            df = df[
-                (df['volume_24h'] >= ASSET_SELECTION['min_volume_24h']) &
-                (df['price'] >= ASSET_SELECTION['min_price'])
-            ]
-            
-            if df.empty:
-                self.logger.warning("Нет активов, соответствующих критериям фильтрации")
-                return []
-            
-            # Нормлизуем метрики
-            for col in ['volatility', 'volume_score', 'trend_strength']:
-                if df[col].max() == df[col].min():
-                    df[f'{col}_norm'] = 1.0
-                else:
-                    df[f'{col}_norm'] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())
-            
-            # Рассчитываем общий скор
-            weights = ASSET_SELECTION['selection_criteria']
-            df['total_score'] = (
-                df['volatility_norm'] * weights['volatility_weight'] +
-                df['volume_score_norm'] * weights['volume_weight'] +
-                df['trend_strength_norm'] * weights['trend_weight']
-            )
-            
-            # Выбираем лучшие активы
-            max_assets = min(
-                ASSET_SELECTION['selection_criteria']['max_selected_assets'],
-                len(df)
-            )
-            
-            best_assets = df.nlargest(max_assets, 'total_score')
-            
-            # Логируем метрики выбранных активов
-            for _, row in best_assets.iterrows():
+            self.logger.info(f"Найдено {len(suitable_pairs)} подходящих пар")
+            self.logger.info(f"Топ-5 пар по скору:")
+            for symbol in sorted_pairs:
+                metrics = self.asset_metrics[symbol]
                 self.logger.info(
-                    f"Актив {row['symbol']}: "
-                    f"Волатильность={row['volatility']:.2%}, "
-                    f"Объем=${row['volume_24h']/1000000:.1f}M, "
-                    f"Тренд={row['trend_strength']:.2f}, "
-                    f"Общий скор={row['total_score']:.2f}"
+                    f"{symbol}: "
+                    f"Скор={metrics['total_score']:.2f}, "
+                    f"Объем=${metrics['volume']/1000000:.1f}M, "
+                    f"Волатильность={metrics['volatility']:.1f}%"
                 )
             
-            # Обновляем список символов и метрики
-            self.symbols = best_assets['symbol'].tolist()
-            self.asset_metrics = best_assets.set_index('symbol').to_dict('index')
-            
-            # Обновляем распределение средств
-            self._update_allocation()
-            
-            return self.symbols
+            return sorted_pairs
             
         except Exception as e:
-            self.logger.error(f"Ошибка при выборе активов: {str(e)}")
+            self.logger.error(f"Ошибка анализа рынка: {str(e)}")
             return []
 
-    def _update_allocation(self):
-        """Обновляет распределение средств между активами"""
-        from config import TRADING_PARAMS
-        
-        if not self.symbols:
-            return
-            
-        # Равное распределение
-        allocation_per_asset = 1.0 / len(self.symbols)
-        
-        TRADING_PARAMS['allocation'] = {
-            symbol: allocation_per_asset for symbol in self.symbols
-        }
-
-    def generate_signal(self, data, symbol):
-        """
-        Args:
-            data (list): Исторические данные
-            symbol (str): Торговая пара
-        """
-        last_close = data[-1]['close']
-        moving_average_50 = np.mean([d['close'] for d in data[-50:]])
-
-        if last_close > moving_average_50:
-            return {"symbol": symbol, "signal": "buy"}
-        elif last_close < moving_average_50:
-            return {"symbol": symbol, "signal": "sell"}
-        else:
-            return {"symbol": symbol, "signal": "hold"}
-
-    def calculate_stop_loss(self, entry_price):
-        return entry_price * (1 - self.max_loss)
-
-    def calculate_take_profit(self, entry_price):
-        return entry_price * (1 + self.risk_reward_ratio * self.max_loss)
-
-    def calculate_position_size(self, entry_price, stop_loss, balance):
-        """Расчет размера позиции с учетом ограничений"""
+    def _calculate_trend_score(self, client: Client, symbol: str) -> float:
+        """Рассчитывает оценку тренда"""
         try:
-            if balance is None:
-                self.logger.error("Баланс не определен")
-                return 0
-            
-            # Рассчитываем размер позиции исходя из риска
-            risk_amount = balance * (config.POSITION_SIZING['risk_per_trade'] / 100)
-            position_size = risk_amount / abs(entry_price - stop_loss)
-            
-            # Рассчитываем стоимость позиции в USDT
-            position_value = position_size * entry_price
-            
-            # Проверяем минимальный размер позиции
-            if position_value < config.POSITION_SIZING['min_position_size']:
-                self.logger.warning(f"Размер позиции меньше минимального: {position_value:.2f} USDT")
-                return 0
-            
-            # Проверяем максимальный размер позиции
-            max_position_value = min(
-                balance * (config.POSITION_SIZING['max_position_percent'] / 100),
-                config.POSITION_SIZING['max_position_size']
+            # Получаем последние 100 свечей
+            klines = client.get_klines(
+                symbol=symbol,
+                interval=self.params['timeframe'],
+                limit=100
             )
             
-            if position_value > max_position_value:
-                position_size = max_position_value / entry_price
-                self.logger.info(f"Размер позиции ограничен до {position_size:.8f} ({max_position_value:.2f} USDT)")
+            closes = pd.Series([float(k[4]) for k in klines])
             
-            return position_size
+            # Рассчитываем EMA
+            ema9 = closes.ewm(span=9).mean()
+            ema21 = closes.ewm(span=21).mean()
+            
+            # Если короткая EMA выше длинной - восходящий тренд
+            trend_score = 1 if ema9.iloc[-1] > ema21.iloc[-1] else 0
+            
+            # Добавляем силу тренда
+            trend_strength = abs((ema9.iloc[-1] - ema21.iloc[-1]) / ema21.iloc[-1])
+            
+            return trend_score * (1 + trend_strength)
             
         except Exception as e:
-            self.logger.error(f"Ошибка расчета размера позиции: {str(e)}")
+            self.logger.error(f"Ошибка расчета тренда для {symbol}: {str(e)}")
             return 0
 
-    async def initialize(self, exchange):
-        """Инициализация стратегии и первичный анализ рынка"""
-        self.symbols = await self.analyze_market(exchange)
-        if not self.symbols:
-            raise ValueError("Не удалось найти подходящие активы для торговли")
-        return self.symbols
+    def _calculate_total_score(self, metrics: Dict) -> float:
+        """Рассчитывает общий скор актива"""
+        try:
+            # Веса для разных метрик
+            weights = {
+                'volume': 0.3,
+                'volatility': 0.3,
+                'trend': 0.4
+            }
+            
+            # Нормализуем метрики
+            volume_score = min(metrics['volume'] / (self.params['min_volume'] * 10), 1)
+            volatility_score = min(metrics['volatility'] / self.params['max_volatility'], 1)
+            trend_score = metrics['trend']
+            
+            # Рассчитываем взвешенный скор
+            total_score = (
+                volume_score * weights['volume'] +
+                volatility_score * weights['volatility'] +
+                trend_score * weights['trend']
+            )
+            
+            return total_score
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка расчета общего скора: {str(e)}")
+            return 0
 
-    def analyze(self, market_data):
-        signals = []
+    def _calculate_atr(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Рассчитывает Average True Range"""
+        try:
+            high = data['high']
+            low = data['low']
+            close = data['close']
+            
+            tr1 = high - low
+            tr2 = abs(high - close.shift())
+            tr3 = abs(low - close.shift())
+            
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.rolling(window=period).mean()
+            
+            return atr
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка расчета ATR: {str(e)}")
+            return pd.Series(index=data.index)
+
+    def update_trading_pairs(self, pairs):
+        """Обновляет список торгуемых пар"""
+        self.symbols = pairs
+        self._update_allocation()
         
-        for symbol, data in market_data.items():
-            try:
-                self.logger.info(f"\n{'='*50}")
-                self.logger.info(f"Анализ символа: {symbol}")
+    def _calculate_rsi(self, prices, period=None):
+        """Рассчитывает RSI"""
+        if period is None:
+            period = self.params['rsi_period']
+            
+        # Используем ta-lib для расчета RSI
+        try:
+            import talib
+            return talib.RSI(prices, timeperiod=period)
+        except ImportError:
+            # Альтернативный расчет без ta-lib
+            delta = prices.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / loss
+            return 100 - (100 / (1 + rs))
+
+    def analyze_signal(self, data):
+        """Анализирует данные и возвращает торговый сигнал"""
+        try:
+            # Проверяем наличие необходимых данных
+            if data is None or len(data) < self.params['rsi_period']:
+                return None
                 
-                # Преобразуем данные в DataFrame
-                df = pd.DataFrame(data)
-                
-                # Проверяем достаточность данных
-                if len(df) < 20:
-                    self.logger.info(f"Недостаточно свечей для {symbol}: {len(df)} (нужно минимум 20)")
-                    continue
-                    
-                # Выводим последние цены
-                self.logger.info(f"Последние цены:")
-                for i in range(min(5, len(df))):
-                    candle = df.iloc[-(i+1)]
-                    self.logger.info(f"{i+1}. Цена: {candle['close']:.8f}, Объем: {candle['volume']:.2f}")
-                
-                if self._check_signal_conditions(df):
-                    entry_price = float(df['close'].iloc[-1])
-                    
-                    # Расчёт стоп-лосса и тейк-профита
-                    stop_loss = entry_price * (1 - config.STOP_LOSS_PERCENT/100)
-                    take_profit = entry_price * (1 + config.TAKE_PROFIT_PERCENT/100)
-                    
-                    signals.append({
-                        'symbol': symbol,
-                        'direction': 'buy',
-                        'entry_price': entry_price,
-                        'stop_loss': stop_loss,
-                        'stop_loss_percent': -config.STOP_LOSS_PERCENT,
-                        'take_profit': take_profit,
-                        'take_profit_percent': config.TAKE_PROFIT_PERCENT
-                    })
-                    self.logger.info(f"Сгенерирован сигнал для {symbol}")
-                else:
-                    self.logger.info(f"Нет сигнала для {symbol}")
-                
-                self.logger.info(f"{'='*50}\n")
-                    
-            except Exception as e:
-                self.logger.error(f"Ошибка анализа {symbol}: {str(e)}")
-                continue
-        
-        return signals
+            # Рассчитываем индикаторы
+            data['EMA9'] = data['close'].ewm(span=self.params['ema_periods'][0]).mean()
+            data['EMA21'] = data['close'].ewm(span=self.params['ema_periods'][1]).mean()
+            data['RSI'] = self._calculate_rsi(data['close'])
+            data['ATR'] = self._calculate_atr(data)
+            
+            return self._check_signal_conditions(data)
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа сигнала: {str(e)}")
+            return None
 
     def _check_signal_conditions(self, data):
+        """Проверяет условия для генерации сигнала"""
         try:
-            df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data
-            
-            # Рассчитываем индикаторы
-            df['sma_20'] = df['close'].rolling(window=20).mean()
-            df['rsi'] = self._calculate_rsi(df['close'], 14)
-            
             # Получаем последние значения
-            last_candle = df.iloc[-1]
-            prev_candle = df.iloc[-2]
+            current_price = data['close'].iloc[-1]
+            prev_price = data['close'].iloc[-2]
+            ema9 = data['EMA9'].iloc[-1]
+            ema21 = data['EMA21'].iloc[-1]
+            rsi = data['RSI'].iloc[-1]
+            volume = data['volume'].iloc[-1]
+            avg_volume = data['volume'].rolling(5).mean().iloc[-1]
             
-            # Проверяем тренд по нескольким свечам
-            last_3_closes = df['close'].tail(3)
-            price_trend = (last_3_closes.iloc[-1] > last_3_closes.iloc[-2]) and (last_3_closes.mean() > df['close'].tail(6).mean())
+            # Проверяем условия
+            trend_ok = ema9 > ema21
+            momentum_ok = current_price > prev_price
+            volume_ok = volume > (avg_volume * 0.8)
+            rsi_ok = 30 <= rsi <= 70
             
-            # Проверяем объем
-            avg_volume = df['volume'].rolling(window=5).mean()
-            volume_ok = float(last_candle['volume']) > float(avg_volume.iloc[-1] * 0.5)
-            
-            # Проверяем SMA и RSI
-            above_sma = float(last_candle['close']) > float(last_candle['sma_20'])
-            rsi_condition = config.RSI_SETTINGS['oversold'] < float(last_candle['rsi']) < config.RSI_SETTINGS['overbought']
-            
-            # Логируем условия...
-            
-            # Сигнал генерируется если:
-            # 1. Есть растущий тренд
-            # 2. Объем выше 50% от среднего
-            # 3. Цена выше SMA20
-            # 4. RSI в допустимом диапазоне
-            signal = price_trend and volume_ok and above_sma and rsi_condition
-            
-            return signal
+            if all([trend_ok, momentum_ok, volume_ok, rsi_ok]):
+                return 'BUY'
+            elif all([not trend_ok, not momentum_ok, volume_ok, rsi_ok]):
+                return 'SELL'
+                
+            return 'HOLD'
             
         except Exception as e:
             self.logger.error(f"Ошибка проверки условий сигнала: {str(e)}")
-            return False
+            return 'HOLD'
 
-    def _calculate_rsi(self, prices, period=14):
-        """Расчет RSI"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        return 100 - (100 / (1 + rs))
+    def _update_allocation(self):
+        """Обновляет распределение средств между парами"""
+        try:
+            if not self.symbols:
+                return
+            
+            # Равномерное распределение
+            allocation_per_pair = 1.0 / len(self.symbols)
+            
+            self.allocations = {
+                symbol: allocation_per_pair 
+                for symbol in self.symbols
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления аллокации: {str(e)}")
+
+    def analyze(self, market_data):
+        """Анализирует рыночные данные и возвращает торговые сигналы"""
+        try:
+            signals = []
+            
+            for symbol in self.symbols:
+                try:
+                    if symbol not in market_data:
+                        self.logger.warning(f"Нет данных для {symbol}")
+                        continue
+                    
+                    # Преобразуем данные в DataFrame
+                    data = pd.DataFrame(market_data[symbol])
+                    if len(data) < 2:
+                        self.logger.warning(f"Недостаточно данных для {symbol}")
+                        continue
+                    
+                    # Рассчитываем индикаторы
+                    data['EMA9'] = data['close'].ewm(span=self.params['ema_periods'][0]).mean()
+                    data['EMA21'] = data['close'].ewm(span=self.params['ema_periods'][1]).mean()
+                    data['RSI'] = self._calculate_rsi(data['close'])
+                    data['ATR'] = self._calculate_atr(data)
+                    
+                    # Получаем последние значения
+                    current_price = float(data['close'].iloc[-1])
+                    prev_price = float(data['close'].iloc[-2])
+                    ema9 = float(data['EMA9'].iloc[-1])
+                    ema21 = float(data['EMA21'].iloc[-1])
+                    rsi = float(data['RSI'].iloc[-1])
+                    volume = float(data['volume'].iloc[-1])
+                    avg_volume = float(data['volume'].rolling(5).mean().iloc[-1])
+                    
+                    self.logger.info(f"\n{'='*50}")
+                    self.logger.info(f"Анализ пары: {symbol}")
+                    self.logger.info(f"Текущая цена: {current_price:.8f}")
+                    self.logger.info(f"Предыдущая цена: {prev_price:.8f}")
+                    self.logger.info(f"EMA9: {ema9:.8f}")
+                    self.logger.info(f"EMA21: {ema21:.8f}")
+                    self.logger.info(f"RSI: {rsi:.2f}")
+                    self.logger.info(f"Объем: {volume:.2f}")
+                    self.logger.info(f"Средний объем: {avg_volume:.2f}")
+                    
+                    # Проверяем условия
+                    trend_ok = ema9 > ema21
+                    momentum_ok = current_price > prev_price
+                    volume_ok = volume > (avg_volume * self.params['min_volume_ratio'])
+                    rsi_ok = 30 <= rsi <= 70
+                    
+                    self.logger.info("\nПроверка условий:")
+                    self.logger.info(f"- Тренд (EMA9 > EMA21): {trend_ok}")
+                    self.logger.info(f"- Моментум (цена растет): {momentum_ok}")
+                    self.logger.info(f"- Объем (> {self.params['min_volume_ratio']*100}% от среднего): {volume_ok}")
+                    self.logger.info(f"- RSI (30-70): {rsi_ok}")
+                    
+                    # Определяем сигнал
+                    signal = None
+                    if all([trend_ok, momentum_ok, volume_ok, rsi_ok]):
+                        signal = 'BUY'
+                    elif all([not trend_ok, not momentum_ok, volume_ok, rsi_ok]):
+                        signal = 'SELL'
+                    else:
+                        signal = 'HOLD'
+                        reasons = []
+                        if not trend_ok:
+                            reasons.append("тренд не подтвержден")
+                        if not momentum_ok:
+                            reasons.append("нет роста цены")
+                        if not volume_ok:
+                            reasons.append("недостаточный объем")
+                        if not rsi_ok:
+                            reasons.append("RSI вне диапазона")
+                        self.logger.info(f"Сигнал HOLD. Причины: {', '.join(reasons)}")
+                    
+                    self.logger.info(f"\nИтоговый сигнал: {signal}")
+                    
+                    if signal not in ['HOLD', None]:
+                        # Рассчитываем параметры позиции
+                        atr = float(data['ATR'].iloc[-1])
+                        
+                        if signal == 'BUY':
+                            stop_loss = current_price - (2 * atr)
+                            take_profit = current_price + (4 * atr)
+                        else:  # SELL
+                            stop_loss = current_price + (2 * atr)
+                            take_profit = current_price - (4 * atr)
+                        
+                        stop_loss_percent = abs((stop_loss - current_price) / current_price * 100)
+                        take_profit_percent = abs((take_profit - current_price) / current_price * 100)
+                        
+                        signal_info = {
+                            'symbol': symbol,
+                            'direction': signal,
+                            'entry_price': current_price,
+                            'stop_loss': stop_loss,
+                            'take_profit': take_profit,
+                            'stop_loss_percent': stop_loss_percent,
+                            'take_profit_percent': take_profit_percent
+                        }
+                        
+                        self.logger.info("\nПараметры сигнала:")
+                        self.logger.info(f"- Вход: {current_price:.8f}")
+                        self.logger.info(f"- Стоп: {stop_loss:.8f} ({stop_loss_percent:.2f}%)")
+                        self.logger.info(f"- Цель: {take_profit:.8f} ({take_profit_percent:.2f}%)")
+                        
+                        signals.append(signal_info)
+                
+                except Exception as e:
+                    self.logger.error(f"Ошибка анализа {symbol}: {str(e)}")
+                    continue
+                
+            self.logger.info(f"\nВсего найдено сигналов: {len(signals)}")
+            return signals
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа рынка: {str(e)}")
+            return []

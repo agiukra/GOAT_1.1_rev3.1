@@ -1,5 +1,6 @@
 from .macd_strategy import MACDStrategy
 from .rsi_bb_strategy import RSIBollingerStrategy
+from .goat_strategy import GoatStrategy
 import logging
 
 class StrategyManager:
@@ -10,7 +11,8 @@ class StrategyManager:
         # Инициализируем доступные стратегии
         self.strategies = {
             'MACD': MACDStrategy(config),
-            'RSI_BB': RSIBollingerStrategy(config)
+            'RSI_BB': RSIBollingerStrategy(config),
+            'GOAT': GoatStrategy()
         }
         
         self.current_strategy = None
@@ -68,3 +70,25 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Ошибка расчета волатильности: {str(e)}")
             return 0 
+    
+    def initialize_strategy(self, strategy_name):
+        try:
+            if strategy_name == 'GOAT':
+                strategy = GoatStrategy()
+                # Проверка необходимых атрибутов
+                if not hasattr(strategy, 'timeframe'):
+                    raise AttributeError("Strategy missing required 'timeframe' attribute")
+                return strategy
+        except Exception as e:
+            self.logger.error(f"Ошибка при выборе стратегии: {str(e)}")
+            return None
+    
+    def check_rsi_conditions(self, rsi):
+        """Проверяет условия RSI для входа в позицию"""
+        if rsi > 70:
+            self.logger.info(f"RSI > 70, рынок перекуплен")
+            return False
+        elif rsi < 30:
+            self.logger.info(f"RSI < 30, рынок перепродан") 
+            return False
+        return True

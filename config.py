@@ -4,9 +4,10 @@ API_SECRET = 'OcybRBPZ89EA1dx8ZrLs8hGgfJ5axeBg0tNT4fwQb71IhKv1C8dJo8YtldIgSetC'
 
 # Основные торговые параметры
 TRADING_PARAMS = {
-    'symbols': [],  # Будет заполняться динамически
-    'interval': '1h',
-    'limit': 100,
+    'symbols': ['BTCUSDT', 'ETHUSDT'],  # Базовые пары
+    'interval': '1m',                    # Таймфрейм
+    'limit': 100,                        # Количество свечей для анализа
+    'cycle_interval': 60,                # Интервал между циклами в секундах
     'interval_seconds': 300,
     'risk_percentage': 1,
     'account_balance': None,
@@ -36,20 +37,16 @@ INDICATOR_PARAMS = {
 # Условия для торговых сигналов
 SIGNAL_CONDITIONS = {
     'buy': {
-        'rsi_threshold': 30,
-        'bb_position': -1,  # Цена ниже нижней полосы
-        'trend_confirmation': True,  # Требуется подтверждение тренда
-        'volume_threshold': 1.5,  # Объем выше среднего в 1.5 раза
-        'min_price_change': 0.5,  # Минимальное изменение цены в %
-        'momentum_threshold': 0.2
+        'rsi_lower': 25,      # Нижняя граница RSI для покупки
+        'rsi_upper': 75,      # Верхняя граница RSI для покупки
+        'volume_factor': 0.8,  # Минимальный множитель объема
+        'trend_strength': 0.01 # Минимальная сила тренда
     },
     'sell': {
-        'rsi_threshold': 70,
-        'bb_position': 1,  # Цена выше верхней полосы
-        'trend_confirmation': True,
-        'volume_threshold': 1.5,
-        'min_price_change': 0.5,
-        'momentum_threshold': -0.2
+        'rsi_lower': 25,
+        'rsi_upper': 75,
+        'volume_factor': 0.8,
+        'trend_strength': 0.01
     }
 }
 
@@ -222,8 +219,8 @@ RSI_SETTINGS = {
 
 # Добавляем параметры размера позиции
 POSITION_SIZING = {
-    'max_position_percent': 5.0,   # Уменьшаем с 10% до 5%
-    'risk_per_trade': 1.0,        # Оставляем риск 1%
-    'min_position_size': 10.0,    # Минимум 10 USDT
-    'max_position_size': 50.0     # Уменьшаем максимум до 50 USDT
+    'risk_per_trade': 0.01,        # 1% риска на сделку
+    'max_position_percent': 0.02,   # Максимум 2% от баланса
+    'min_position_size': 10,       # Минимум 10 USDT
+    'max_position_size': None      # Будет рассчитано как % от баланса
 }
